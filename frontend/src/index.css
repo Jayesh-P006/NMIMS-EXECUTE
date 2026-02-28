@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ── Base Resets ─────────────────────────────────────────────── */
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-campus-950 text-slate-200 font-sans antialiased;
+  margin: 0;
+}
+
+/* Thin custom scrollbar for the dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-campus-900;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-campus-700 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-campus-600;
+}
