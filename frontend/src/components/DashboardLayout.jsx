@@ -72,7 +72,7 @@ export default function DashboardLayout({
           {!collapsed && (
             <div className="overflow-hidden whitespace-nowrap">
               <p className="text-sm font-semibold text-white leading-tight">
-                Smart Campus
+                NMIMS Indore
               </p>
               <p className="text-[10px] text-slate-500 uppercase tracking-widest">
                 Net-Zero Command
@@ -148,7 +148,7 @@ export default function DashboardLayout({
               {navItems.find((n) => n.key === activeNav)?.label ?? "Dashboard"}
             </h1>
             <p className="text-xs text-slate-500">
-              Real-time campus energy monitoring
+              Real-time NMIMS Indore energy monitoring
             </p>
           </div>
           <div className="flex items-center gap-2">

@@ -268,7 +268,7 @@ function EnergyFlowDiagram({ solar, grid, hvac, total }) {
           <div className="bg-campus-800/80 rounded-xl p-3 border border-campus-700">
             <Building2 className="w-6 h-6 text-slate-400 mx-auto mb-1" />
             <p className="text-center text-sm font-bold text-white">{total} kW</p>
-            <p className="text-center text-[9px] text-slate-500">Campus Load</p>
+            <p className="text-center text-[9px] text-slate-500">NMIMS Load</p>
           </div>
           <div className="flex items-center gap-1">
             <ArrowDownRight className="w-3 h-3 text-amber-400/60" />
@@ -433,7 +433,7 @@ function ActivityFeed({ events }) {
           <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">
             Live Activity Feed
           </h3>
-          <p className="text-[10px] text-slate-500">Real-time campus energy events</p>
+          <p className="text-[10px] text-slate-500">Real-time NMIMS Indore energy events</p>
         </div>
       </div>
 
@@ -866,7 +866,7 @@ export default function OverviewPage() {
 
             <div className="space-y-3">
               {[
-                { label: "Your Campus", value: data.campus_eui, color: "bg-sky-500" },
+                { label: "NMIMS Indore", value: data.campus_eui, color: "bg-sky-500" },
                 { label: "India Avg (Office)", value: 180, color: "bg-slate-600" },
                 { label: "GRIHA 5-Star", value: 90, color: "bg-emerald-500" },
                 { label: "Net-Zero Target", value: 50, color: "bg-cyan-500" },
@@ -889,9 +889,9 @@ export default function OverviewPage() {
             <div className="mt-3 px-3 py-2 rounded-lg bg-campus-800/40 border border-campus-800">
               <p className="text-[10px] text-slate-400 text-center">
                 {data.campus_eui < 100
-                  ? "✦ Excellent — Campus EUI is below GRIHA 5-Star standards"
+                  ? "✦ Excellent — NMIMS Indore EUI is below GRIHA 5-Star standards"
                   : data.campus_eui < 180
-                  ? "◉ Good — Campus EUI is below India average, room to improve"
+                  ? "◉ Good — NMIMS Indore EUI is below India average, room to improve"
                   : "⚠ Above Average — Consider efficiency improvements to reduce EUI"}
               </p>
             </div>

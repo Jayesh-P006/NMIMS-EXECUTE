@@ -6,9 +6,9 @@
   <img src="https://img.shields.io/badge/license-MIT-green" />
 </p>
 
-# 🏫 Smart Campus Net-Zero Command Center
+# 🏫 SVKM's NMIMS Indore — Net-Zero Command Center
 
-A **full-stack IoT analytics dashboard** for monitoring and optimising campus energy consumption toward net-zero emissions. Built with a Flask backend (Python) and a React + Tailwind CSS frontend, it features live simulated IoT data, weather-aware renewable energy tracking, battery storage simulation, and ML-based surge prediction.
+A **full-stack IoT analytics dashboard** for monitoring and optimizing energy consumption toward net-zero emissions at the **NMIMS Indore campus** (Off Super Corridor, Bada Bangarda, Indore, MP 453112). Built with Flask (Python) and React + Tailwind CSS, it features live simulated IoT data across all 5 schools (STME, SBM, SOC, SOL, SPTM), weather-aware renewable energy tracking using live geolocation, battery storage simulation, and ML-based surge prediction.
 
 ---
 
@@ -16,7 +16,7 @@ A **full-stack IoT analytics dashboard** for monitoring and optimising campus en
 
 | Module | Description |
 |---|---|
-| **Real-Time IoT Simulator** | Daemon thread generates realistic energy readings every 5 s for 3 campus blocks (Engineering, Library, Cafeteria) with time-of-day curves for solar, HVAC and occupancy |
+| **Real-Time IoT Simulator** | Daemon thread generates realistic energy readings every 5 s for all 5 NMIMS Indore school blocks (STME, SBM, SOC, SOL, SPTM) with time-of-day curves for solar, HVAC and occupancy |
 | **Overview Dashboard** | Net-zero gauge, sustainability score, 24 h energy profile, renewable mix, block efficiency cards, activity feed, weather panel |
 | **Energy Analytics** | Live line chart polling `/api/live-status`, block-wise breakdown, surge prediction model |
 | **Renewable Simulator** | Dynamic donut chart (Grid vs Solar vs Battery), **live browser geolocation → Open-Meteo weather API** — solar output drops in real time based on actual cloud cover |
@@ -30,7 +30,7 @@ A **full-stack IoT analytics dashboard** for monitoring and optimising campus en
 ## 📂 Project Structure
 
 ```
-smart-campus-net-zero/
+nmims-indore-net-zero/
 ├── app.py                  # Flask backend — API + IoT simulator
 ├── requirements.txt        # Python dependencies
 ├── .env.example            # Environment variable template
@@ -69,8 +69,8 @@ smart-campus-net-zero/
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/<your-username>/smart-campus-net-zero.git
-cd smart-campus-net-zero
+git clone https://github.com/<your-username>/nmims-indore-net-zero.git
+cd nmims-indore-net-zero
 ```
 
 ### 2. Backend setup
@@ -198,5 +198,5 @@ Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  Built for the <strong>NMIMS Smart Campus Hackathon</strong> 🏆
+  Built for <strong>SVKM's NMIMS Indore — Smart Campus Hackathon</strong> 🏆
 </p>

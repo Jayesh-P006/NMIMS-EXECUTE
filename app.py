@@ -1,10 +1,10 @@
 """
-Smart Campus Net-Zero Command Center
+Smart Campus Net-Zero Command Center - NMIMS Indore
 Flask Backend with Mock IoT Simulator
-─────────────────────────────────────
+-------------------------------------
 Works in two modes:
-  1. MongoDB mode   — if MONGO_URI is reachable, data persists in MongoDB
-  2. In-Memory mode — automatic fallback; all data lives in Python lists/dicts
+  1. MongoDB mode   - if MONGO_URI is reachable, data persists in MongoDB
+  2. In-Memory mode - automatic fallback; all data lives in Python lists/dicts
 """
 
 import math
@@ -30,7 +30,7 @@ FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
 FLASK_PORT = int(os.getenv("FLASK_PORT", 5000))
 
 SIMULATOR_INTERVAL_SECONDS = 5
-SURGE_THRESHOLD_KW = 500
+SURGE_THRESHOLD_KW = 400
 
 # ---------------------------------------------------------------------------
 # Flask App
@@ -101,18 +101,22 @@ def _try_connect_mongo():
 
 
 # ---------------------------------------------------------------------------
-# Block Profiles
+# Block Profiles  — NMIMS Indore Campus Schools
 # ---------------------------------------------------------------------------
 BLOCK_SEEDS = [
-    {"_id": "block_engineering", "Name": "Engineering", "Square_Footage": 45000},
-    {"_id": "block_library",     "Name": "Library",     "Square_Footage": 30000},
-    {"_id": "block_cafeteria",   "Name": "Cafeteria",   "Square_Footage": 12000},
+    {"_id": "block_stme",  "Name": "STME Block",  "Square_Footage": 42000},
+    {"_id": "block_sbm",   "Name": "SBM Block",   "Square_Footage": 35000},
+    {"_id": "block_soc",   "Name": "SOC Block",   "Square_Footage": 28000},
+    {"_id": "block_sol",   "Name": "SOL Block",   "Square_Footage": 22000},
+    {"_id": "block_sptm",  "Name": "SPTM Block",  "Square_Footage": 30000},
 ]
 
 BLOCK_PROFILES = {
-    "Engineering": {"base_grid_kw": 120, "solar_capacity_kw": 80, "base_hvac_kw": 60},
-    "Library":     {"base_grid_kw": 55,  "solar_capacity_kw": 40, "base_hvac_kw": 30},
-    "Cafeteria":   {"base_grid_kw": 70,  "solar_capacity_kw": 20, "base_hvac_kw": 25},
+    "STME Block":  {"base_grid_kw": 130, "solar_capacity_kw": 85, "base_hvac_kw": 65},
+    "SBM Block":   {"base_grid_kw": 90,  "solar_capacity_kw": 60, "base_hvac_kw": 45},
+    "SOC Block":   {"base_grid_kw": 70,  "solar_capacity_kw": 45, "base_hvac_kw": 35},
+    "SOL Block":   {"base_grid_kw": 55,  "solar_capacity_kw": 35, "base_hvac_kw": 28},
+    "SPTM Block":  {"base_grid_kw": 110, "solar_capacity_kw": 70, "base_hvac_kw": 55},
 }
 
 
@@ -285,7 +289,7 @@ def _get_today_logs(now):
 @app.route("/")
 def index():
     return jsonify({
-        "service": "Smart Campus Net-Zero Command Center",
+        "service": "NMIMS Indore — Net-Zero Command Center",
         "storage": "MongoDB" if USE_MONGO else "In-Memory",
         "status": "running",
         "endpoints": ["/blocks", "/energy-logs", "/api/live-status",
