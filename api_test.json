@@ -1,0 +1,29 @@
+{
+  "irradiance_wm2": 0.0,
+  "is_nighttime": true,
+  "local_hour": 1,
+  "location": {
+    "lat": 22.9252,
+    "lon": 75.8655,
+    "name": "NMIMS Indore"
+  },
+  "solar_kw": 0.0,
+  "t_cell_c": 21.9,
+  "weather": {
+    "cloud_cover_pct": 7.0,
+    "description": "Clear Sky",
+    "feels_like_c": 23.7,
+    "humidity_pct": 65.0,
+    "pressure_hpa": 953.6,
+    "sunrise": "2026-03-01T06:47",
+    "sunset": "2026-03-01T18:29",
+    "temperature_c": 16.9,
+    "uv_index": 0.0,
+    "uv_index_max": 7.3,
+    "visibility_km": 24.1,
+    "weather_code": 0,
+    "wind_direction": "WSW",
+    "wind_direction_deg": 250.0,
+    "wind_speed_kmh": 4.2
+  }
+}

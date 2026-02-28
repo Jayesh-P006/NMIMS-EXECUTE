@@ -294,7 +294,7 @@ def index():
         "status": "running",
         "endpoints": ["/blocks", "/energy-logs", "/api/live-status",
                       "/api/kpis", "/api/overview", "/api/renewable-mix",
-                      "/api/predict-surge"],
+                      "/api/predict-surge", "/api/solar-live"],
     })
 
 
@@ -841,6 +841,92 @@ def api_predict_surge():
             "surge_threshold_kW": SURGE_THRESHOLD_KW,
             "anomaly_alert": False,
             "message": f"Prediction unavailable: {exc}",
+        })
+
+
+# ---------------------------------------------------------------------------
+# Solar Energy — Live PV Simulation  (uses solar_simulator.py)
+# ---------------------------------------------------------------------------
+from solar_simulator import (
+    fetch_live_weather,
+    fetch_full_weather,
+    estimate_irradiance,
+    calculate_solar_yield,
+    get_dynamic_solar_kw,
+    P_CAPACITY,
+    CLEAR_SKY_GHI,
+    PR,
+    GAMMA,
+)
+
+# NMIMS Indore campus coordinates (default)
+_CAMPUS_LAT = 22.9252
+_CAMPUS_LON = 75.8655
+
+
+@app.route("/api/solar-live")
+def api_solar_live():
+    """
+    Returns real-time solar PV simulation + comprehensive weather report.
+    Accepts optional ?lat=&lon= query params for dynamic location.
+    """
+    try:
+        lat = float(request.args.get("lat", _CAMPUS_LAT))
+        lon = float(request.args.get("lon", _CAMPUS_LON))
+
+        weather    = fetch_full_weather(lat, lon)
+        temp_c     = weather["temperature_c"]
+        cloud_pct  = weather["cloud_cover_pct"]
+
+        local_hour = datetime.now().hour
+        irr        = estimate_irradiance(cloud_pct, local_hour)
+        power_kw   = calculate_solar_yield(temp_c, irr)
+        t_cell     = temp_c + 5.0
+        is_night   = (local_hour < 6 or local_hour >= 18)
+
+        return jsonify({
+            "solar_kw":        round(power_kw, 2),
+            "irradiance_wm2":  round(irr, 2),
+            "is_nighttime":    is_night,
+            "local_hour":      local_hour,
+            "t_cell_c":        round(t_cell, 1),
+            # ── Full Weather Report ──
+            "weather": {
+                "temperature_c":     weather["temperature_c"],
+                "feels_like_c":      weather["feels_like_c"],
+                "cloud_cover_pct":   weather["cloud_cover_pct"],
+                "humidity_pct":      weather["humidity_pct"],
+                "wind_speed_kmh":    weather["wind_speed_kmh"],
+                "wind_direction":    weather["wind_direction"],
+                "wind_direction_deg": weather["wind_direction_deg"],
+                "pressure_hpa":      weather["pressure_hpa"],
+                "visibility_km":     round(weather["visibility_m"] / 1000, 1),
+                "uv_index":          weather["uv_index"],
+                "uv_index_max":      weather["uv_index_max"],
+                "description":       weather["description"],
+                "weather_code":      weather["weather_code"],
+                "sunrise":           weather["sunrise"],
+                "sunset":            weather["sunset"],
+            },
+            "location": {
+                "lat": lat,
+                "lon": lon,
+                "name": "NMIMS Indore" if (lat == _CAMPUS_LAT and lon == _CAMPUS_LON) else f"{lat}°N, {lon}°E",
+            },
+        })
+    except Exception as exc:
+        return jsonify({
+            "solar_kw": 0,
+            "irradiance_wm2": 0,
+            "is_nighttime": True,
+            "weather": {
+                "temperature_c": 0, "feels_like_c": 0, "cloud_cover_pct": 0,
+                "humidity_pct": 0, "wind_speed_kmh": 0, "wind_direction": "—",
+                "wind_direction_deg": 0, "pressure_hpa": 0, "visibility_km": 0,
+                "uv_index": 0, "uv_index_max": 0, "description": "Unavailable",
+                "weather_code": -1, "sunrise": "", "sunset": "",
+            },
+            "error": str(exc),
         })
 
 

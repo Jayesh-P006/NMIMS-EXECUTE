@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ── Base Resets ─────────────────────────────────────────────── */
 html {
@@ -10,21 +10,133 @@ html {
 }
 
 body {
-  @apply bg-campus-950 text-slate-200 font-sans antialiased;
+  @apply bg-black text-slate-200 font-sans antialiased;
   margin: 0;
+  background-color: #000000;
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(56,189,248,0.02) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.02) 0%, transparent 50%);
+  background-attachment: fixed;
 }
 
-/* Thin custom scrollbar for the dark theme */
+/* ── Reusable Glass Card ─────────────────────────────────────── */
+@layer components {
+  .glass-card {
+    @apply relative overflow-hidden rounded-2xl border border-white/[0.06] shadow-card;
+    background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .glass-card::before {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-[1px];
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  }
+
+  .glass-card-hover {
+    @apply transition-all duration-300 ease-out;
+  }
+  .glass-card-hover:hover {
+    @apply shadow-card-hover;
+    transform: translateY(-2px);
+    border-color: rgba(255,255,255,0.1);
+  }
+
+  /* Gradient top accent bar variants */
+  .accent-bar-emerald::after {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-[2px];
+    background: linear-gradient(90deg, #34d399, #059669);
+  }
+  .accent-bar-sky::after {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-[2px];
+    background: linear-gradient(90deg, #38bdf8, #0284c7);
+  }
+  .accent-bar-violet::after {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-[2px];
+    background: linear-gradient(90deg, #8b5cf6, #6d28d9);
+  }
+  .accent-bar-amber::after {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-[2px];
+    background: linear-gradient(90deg, #fbbf24, #d97706);
+  }
+  .accent-bar-coral::after {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-[2px];
+    background: linear-gradient(90deg, #ff6b6b, #ef4444);
+  }
+  .accent-bar-cyan::after {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-[2px];
+    background: linear-gradient(90deg, #22d3ee, #06b6d4);
+  }
+
+  /* Chart glow container */
+  .chart-glow {
+    @apply relative;
+    filter: drop-shadow(0 0 20px rgba(56,189,248,0.06));
+  }
+
+  /* Stagger animation delays */
+  .stagger-1 { animation-delay: 0ms; }
+  .stagger-2 { animation-delay: 75ms; }
+  .stagger-3 { animation-delay: 150ms; }
+  .stagger-4 { animation-delay: 225ms; }
+  .stagger-5 { animation-delay: 300ms; }
+  .stagger-6 { animation-delay: 375ms; }
+
+  /* Shimmer gradient for loading / in-progress states */
+  .shimmer-bg {
+    background: linear-gradient(
+      90deg,
+      transparent 25%,
+      rgba(255,255,255,0.04) 50%,
+      transparent 75%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+
+  /* Left accent border for cards */
+  .left-accent-emerald { border-left: 2px solid #34d399; }
+  .left-accent-sky     { border-left: 2px solid #38bdf8; }
+  .left-accent-violet  { border-left: 2px solid #8b5cf6; }
+  .left-accent-amber   { border-left: 2px solid #fbbf24; }
+  .left-accent-coral   { border-left: 2px solid #ff6b6b; }
+  .left-accent-cyan    { border-left: 2px solid #22d3ee; }
+}
+
+/* ── Custom Scrollbar ────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  @apply bg-campus-900;
+  @apply bg-transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-campus-700 rounded-full;
+  @apply rounded-full;
+  background: linear-gradient(180deg, #1c2a4a, #263d65);
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-campus-600;
+  background: linear-gradient(180deg, #263d65, #355580);
+}
+
+/* ── Page transition wrapper ─────────────────────────────────── */
+.page-enter {
+  animation: fadeInUp 0.45s ease-out both;
+}
+
+/* ── SVG Gauge glow filter ───────────────────────────────────── */
+.gauge-glow {
+  filter: drop-shadow(0 0 8px var(--gauge-color, rgba(52,211,153,0.4)));
+}
+
+/* ── Smooth number transitions ───────────────────────────────── */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
