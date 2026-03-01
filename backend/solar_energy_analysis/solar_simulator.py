@@ -1,11 +1,11 @@
 """
-solar_simulator.py
-───────────────────
+solar_simulator.py  (backend/solar_energy_analysis/)
+─────────────────────────────────────────────────────
 Modular service that calculates real-time simulated solar energy production
 based on live weather data fetched for dynamic GPS coordinates.
 
 Usage:
-    from solar_simulator import get_dynamic_solar_kw, fetch_full_weather
+    from backend.solar_energy_analysis import get_dynamic_solar_kw, fetch_full_weather
     power_kw = get_dynamic_solar_kw(lat=22.9252, lon=75.8655)
     weather  = fetch_full_weather(lat=22.9252, lon=75.8655)
 

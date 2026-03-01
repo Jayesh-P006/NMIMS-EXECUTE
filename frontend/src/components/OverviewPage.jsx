@@ -3,6 +3,10 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
   PieChart,
   Pie,
   Cell,
@@ -36,11 +40,33 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  Cpu,
+  BrainCircuit,
+  Save,
+  Calendar,
+  Download,
+  Plus,
+  Trash2,
+  IndianRupee,
 } from "lucide-react";
 
 const API_URL = "http://localhost:5000/api/overview";
 const SURGE_URL = "http://localhost:5000/api/predict-surge";
 const POLL_INTERVAL = 5000;
+const CONSUMPTION_URL = "http://localhost:5000/api/block-consumption";
+const FORECAST_URL   = "http://localhost:5000/api/forecast";
+
+const ANALYSIS_BLOCKS = [
+  { key: "STME Block", short: "STME", color: "#38bdf8" },
+  { key: "SBM Block",  short: "SBM",  color: "#a78bfa" },
+  { key: "SOC Block",  short: "SOC",  color: "#34d399" },
+  { key: "SOL Block",  short: "SOL",  color: "#fbbf24" },
+  { key: "SPTM Block", short: "SPTM", color: "#f87171" },
+];
+
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const FULL_MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const ELECTRICITY_RATE = 8; // ₹/kWh
 
 /* ══════════════════════════════════════════════════════════════
    UTILITY HELPERS
@@ -535,6 +561,20 @@ export default function OverviewPage() {
   const [surgeData, setSurgeData] = useState(null);
   const [connected, setConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [overviewTab, setOverviewTab] = useState("iot");
+
+  /* ── Analysis Models state ── */
+  const [consumptionRecords, setConsumptionRecords] = useState([]);
+  const [entryYear, setEntryYear] = useState(new Date().getFullYear());
+  const [entryMonth, setEntryMonth] = useState(new Date().getMonth() + 1);
+  const [blockInputs, setBlockInputs] = useState(() =>
+    Object.fromEntries(ANALYSIS_BLOCKS.map(b => [b.key, ""]))
+  );
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+  const [forecastData, setForecastData] = useState(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+
   const intervalRef = useRef(null);
 
   const fetchData = async () => {
@@ -566,6 +606,82 @@ export default function OverviewPage() {
     return () => clearInterval(intervalRef.current);
   }, []);
 
+  /* Fetch saved consumption data */
+  const fetchConsumption = async () => {
+    try {
+      const res = await fetch(CONSUMPTION_URL);
+      if (res.ok) setConsumptionRecords(await res.json());
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { fetchConsumption(); }, []);
+
+  /* Fetch forecast data */
+  const fetchForecast = async () => {
+    setForecastLoading(true);
+    try {
+      const res = await fetch(FORECAST_URL);
+      if (res.ok) setForecastData(await res.json());
+    } catch { /* ignore */ }
+    setForecastLoading(false);
+  };
+  useEffect(() => { if (overviewTab === "analysis") fetchForecast(); }, [overviewTab]);
+
+  /* Save block consumption */
+  const handleSaveConsumption = async () => {
+    const filled = Object.entries(blockInputs).filter(([, v]) => v !== "" && Number(v) > 0);
+    if (filled.length === 0) { setSaveMsg("Enter at least one block's kWh"); return; }
+    setSaving(true);
+    setSaveMsg("");
+    try {
+      const res = await fetch(CONSUMPTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          year: entryYear,
+          month: entryMonth,
+          blocks: Object.fromEntries(filled.map(([k, v]) => [k, Number(v)])),
+          rate: ELECTRICITY_RATE,
+        }),
+      });
+      if (res.ok) {
+        setSaveMsg(`Saved ${filled.length} block(s) for ${FULL_MONTH_NAMES[entryMonth - 1]} ${entryYear}`);
+        setBlockInputs(Object.fromEntries(ANALYSIS_BLOCKS.map(b => [b.key, ""])));
+        fetchConsumption();
+      } else {
+        setSaveMsg("Save failed — check backend");
+      }
+    } catch { setSaveMsg("Network error"); }
+    setSaving(false);
+  };
+
+  /* Derived: monthly chart data */
+  const monthlyChartData = useMemo(() => {
+    const byMonth = {};
+    consumptionRecords.forEach(r => {
+      const key = `${r.year}-${String(r.month).padStart(2, "0")}`;
+      if (!byMonth[key]) byMonth[key] = { month: key, label: `${MONTH_NAMES[r.month - 1]} ${r.year}`, total: 0, cost: 0 };
+      const blk = ANALYSIS_BLOCKS.find(b => b.key === r.block);
+      if (blk) byMonth[key][blk.short] = r.kwh;
+      byMonth[key].total += r.kwh;
+      byMonth[key].cost += r.cost;
+    });
+    return Object.values(byMonth).sort((a, b) => a.month.localeCompare(b.month));
+  }, [consumptionRecords]);
+
+  /* Derived: block totals */
+  const blockTotals = useMemo(() => {
+    const totals = {};
+    ANALYSIS_BLOCKS.forEach(b => { totals[b.key] = { kwh: 0, cost: 0, months: 0 }; });
+    consumptionRecords.forEach(r => {
+      if (totals[r.block]) {
+        totals[r.block].kwh += r.kwh;
+        totals[r.block].cost += r.cost;
+        totals[r.block].months += 1;
+      }
+    });
+    return totals;
+  }, [consumptionRecords]);
+
   const pieData = useMemo(() => {
     if (!data) return [];
     return [
@@ -596,7 +712,7 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-5">
-      {/* Connection Status */}
+      {/* Connection Status + View Toggle */}
       <div className="flex items-center justify-between animate-fade-in">
         <div className="flex items-center gap-2">
           {connected
@@ -609,6 +725,33 @@ export default function OverviewPage() {
             </span>
           )}
         </div>
+
+        {/* ─── IoT / Analysis Toggle ─── */}
+        <div className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.06] rounded-xl p-0.5">
+          <button
+            onClick={() => setOverviewTab("iot")}
+            className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 ${
+              overviewTab === "iot"
+                ? "bg-sky-500/15 text-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.15)] border border-sky-500/20"
+                : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.03] border border-transparent"
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            IoT Devices
+          </button>
+          <button
+            onClick={() => setOverviewTab("analysis")}
+            className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 ${
+              overviewTab === "analysis"
+                ? "bg-violet-500/15 text-violet-400 shadow-[0_0_8px_rgba(139,92,246,0.15)] border border-violet-500/20"
+                : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.03] border border-transparent"
+            }`}
+          >
+            <BrainCircuit className="w-3.5 h-3.5" />
+            Analysis Models
+          </button>
+        </div>
+
         <button
           onClick={fetchData}
           className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 transition-colors px-2 py-1 rounded-lg hover:bg-white/[0.03]"
@@ -618,6 +761,8 @@ export default function OverviewPage() {
         </button>
       </div>
 
+      {overviewTab === "iot" ? (
+      <>
       {/* ═══════ ROW 1 — Hero Metrics ═══════ */}
       <section className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="glass-card p-5 flex items-center justify-center animate-scale-in">
@@ -884,6 +1029,483 @@ export default function OverviewPage() {
           </div>
         </div>
       </section>
+      </>
+      ) : (
+      /* ═══════ ANALYSIS MODELS TAB ═══════ */
+      <div className="space-y-5 animate-fade-in-up">
+
+        {/* ── Section Header ── */}
+        <div className="flex items-center gap-2">
+          <BrainCircuit className="w-4 h-4 text-violet-400" />
+          <h2 className="text-sm font-bold text-slate-300 tracking-tight">Electricity Consumption — Block-wise Entry</h2>
+          <div className="flex-1 h-[1px] bg-gradient-to-r from-violet-500/20 to-transparent ml-3" />
+        </div>
+
+        {/* ─── Entry Form ─── */}
+        <div className="glass-card accent-bar-violet p-5">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="p-2 rounded-xl bg-violet-500/10 border border-white/[0.04]">
+              <Plus className="w-4 h-4 text-violet-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-200">Add Monthly Consumption</h3>
+              <p className="text-[10px] text-slate-500">Enter kWh consumed by each block for a given month</p>
+            </div>
+          </div>
+
+          {/* Year & Month selector */}
+          <div className="flex items-center gap-4 mb-5">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-slate-500" />
+              <select
+                value={entryMonth}
+                onChange={e => setEntryMonth(Number(e.target.value))}
+                className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:border-violet-500/30 focus:outline-none transition-colors"
+              >
+                {FULL_MONTH_NAMES.map((m, i) => (
+                  <option key={i} value={i + 1} className="bg-[#0c1220] text-slate-300">{m}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={entryYear}
+                onChange={e => setEntryYear(Number(e.target.value))}
+                min={2020} max={2040}
+                className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 w-20 focus:border-violet-500/30 focus:outline-none transition-colors"
+              />
+            </div>
+            <span className="text-[10px] text-slate-600 font-mono">Rate: ₹{ELECTRICITY_RATE}/kWh</span>
+          </div>
+
+          {/* Block inputs grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+            {ANALYSIS_BLOCKS.map(blk => (
+              <div key={blk.key} className="relative">
+                <label className="text-[10px] text-slate-500 font-medium mb-1 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full" style={{ background: blk.color }} />
+                  {blk.short} Block
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    placeholder="kWh"
+                    value={blockInputs[blk.key]}
+                    onChange={e => setBlockInputs(prev => ({ ...prev, [blk.key]: e.target.value }))}
+                    min={0}
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:border-violet-500/30 focus:outline-none transition-colors font-mono"
+                  />
+                  {blockInputs[blk.key] && Number(blockInputs[blk.key]) > 0 && (
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-600 font-mono">
+                      ₹{(Number(blockInputs[blk.key]) * ELECTRICITY_RATE).toLocaleString("en-IN")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Save button */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSaveConsumption}
+              disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-500/15 border border-violet-500/25 text-violet-400 text-xs font-semibold hover:bg-violet-500/25 transition-all duration-300 disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {saving ? "Saving..." : "Save Data"}
+            </button>
+            {saveMsg && (
+              <span className={`text-[11px] font-mono ${saveMsg.includes("Saved") ? "text-emerald-400" : "text-amber-400"}`}>
+                {saveMsg}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ─── Monthly Comparison Chart ─── */}
+        {monthlyChartData.length > 0 && (
+          <div className="glass-card accent-bar-sky p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 rounded-xl bg-sky-500/10 border border-white/[0.04]">
+                <BarChart3 className="w-4 h-4 text-sky-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-200">Monthly Consumption — Block Comparison</h3>
+                <p className="text-[10px] text-slate-500">Stacked bar chart of kWh per block by month</p>
+              </div>
+            </div>
+
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={monthlyChartData} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 6" stroke="rgba(255,255,255,0.03)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#475569" }} tickLine={false} axisLine={{ stroke: "rgba(255,255,255,0.04)" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#475569" }} tickLine={false} axisLine={false} unit=" kWh" />
+                <Tooltip
+                  contentStyle={{ background: "rgba(12,18,32,0.95)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", fontSize: "11px", backdropFilter: "blur(12px)" }}
+                  formatter={(val, name) => [`${Number(val).toLocaleString("en-IN")} kWh`, name]}
+                />
+                <Legend
+                  verticalAlign="top" height={30}
+                  formatter={v => <span className="text-[11px] text-slate-400">{v}</span>}
+                />
+                {ANALYSIS_BLOCKS.map(blk => (
+                  <Bar key={blk.short} dataKey={blk.short} name={blk.short} fill={blk.color} stackId="a" radius={[0, 0, 0, 0]} fillOpacity={0.75} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* ─── Block Totals Summary Cards ─── */}
+        {consumptionRecords.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Building2 className="w-4 h-4 text-sky-400" />
+              <h3 className="text-sm font-bold text-slate-300 tracking-tight">Block-wise Cumulative Summary</h3>
+              <div className="flex-1 h-[1px] bg-gradient-to-r from-sky-500/20 to-transparent ml-3" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              {ANALYSIS_BLOCKS.map(blk => {
+                const t = blockTotals[blk.key];
+                const avgKwh = t.months > 0 ? Math.round(t.kwh / t.months) : 0;
+                return (
+                  <div key={blk.key} className="glass-card p-4 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-[2px]" style={{ background: `linear-gradient(to right, ${blk.color}80, transparent)` }} />
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: blk.color, boxShadow: `0 0 6px ${blk.color}60` }} />
+                      <span className="text-xs font-semibold text-slate-300">{blk.short}</span>
+                    </div>
+                    <div className="text-lg font-bold text-slate-200 font-mono">
+                      {t.kwh.toLocaleString("en-IN")} <span className="text-[10px] text-slate-500 font-normal">kWh</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-mono mt-1">
+                      ₹{t.cost.toLocaleString("en-IN")} total
+                    </div>
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/[0.04]">
+                      <span className="text-[10px] text-slate-600">{t.months} month{t.months !== 1 && "s"}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">~{avgKwh.toLocaleString("en-IN")} avg/mo</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Saved Data Table ─── */}
+        {consumptionRecords.length > 0 && (
+          <div className="glass-card accent-bar-emerald p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 rounded-xl bg-emerald-500/10 border border-white/[0.04]">
+                <Download className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-200">Saved Consumption Records</h3>
+                <p className="text-[10px] text-slate-500">{consumptionRecords.length} record{consumptionRecords.length !== 1 && "s"} saved</p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    <th className="text-left py-2 px-3 text-slate-500 font-medium">Month</th>
+                    <th className="text-left py-2 px-3 text-slate-500 font-medium">Block</th>
+                    <th className="text-right py-2 px-3 text-slate-500 font-medium">Energy (kWh)</th>
+                    <th className="text-right py-2 px-3 text-slate-500 font-medium">Cost (₹)</th>
+                    <th className="text-right py-2 px-3 text-slate-500 font-medium">Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...consumptionRecords]
+                    .sort((a, b) => b.year - a.year || b.month - a.month || a.block.localeCompare(b.block))
+                    .map((r, i) => {
+                      const blk = ANALYSIS_BLOCKS.find(b => b.key === r.block);
+                      return (
+                        <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                          <td className="py-2 px-3 text-slate-400 font-mono">
+                            {MONTH_NAMES[r.month - 1]} {r.year}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full" style={{ background: blk?.color || "#64748b" }} />
+                              <span className="text-slate-300">{blk?.short || r.block}</span>
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right text-slate-300 font-mono">{r.kwh.toLocaleString("en-IN")}</td>
+                          <td className="py-2 px-3 text-right text-slate-400 font-mono">₹{r.cost.toLocaleString("en-IN")}</td>
+                          <td className="py-2 px-3 text-right text-slate-500 font-mono">₹{r.rate}/kWh</td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {consumptionRecords.length === 0 && (
+          <div className="glass-card p-8 flex flex-col items-center justify-center text-center">
+            <Info className="w-6 h-6 text-slate-600 mb-2" />
+            <p className="text-sm text-slate-500">No consumption data yet — add your first entry above</p>
+          </div>
+        )}
+
+        {/* ═══════ ENERGY DEMAND FORECAST ═══════ */}
+        <div className="flex items-center gap-2 mt-4">
+          <TrendingUp className="w-4 h-4 text-cyan-400" />
+          <h2 className="text-sm font-bold text-slate-300 tracking-tight">Energy Demand Forecast (2026–2032)</h2>
+          <div className="flex-1 h-[1px] bg-gradient-to-r from-cyan-500/20 to-transparent ml-3" />
+        </div>
+
+        {forecastLoading && (
+          <div className="glass-card p-8 flex items-center justify-center">
+            <RefreshCw className="w-5 h-5 text-cyan-400/40 animate-spin mr-2" />
+            <span className="text-sm text-slate-500">Loading forecast model…</span>
+          </div>
+        )}
+
+        {forecastData && !forecastData.error && (
+          <>
+            {/* Model Info Card */}
+            <div className="glass-card accent-bar-cyan p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 rounded-xl bg-cyan-500/10 border border-white/[0.04]">
+                  <BrainCircuit className="w-4 h-4 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200">Forecasting Model</h3>
+                  <p className="text-[10px] text-slate-500">{forecastData.model}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500 mb-1">R² Score</p>
+                  <p className="text-lg font-bold font-mono text-emerald-400">{forecastData.r_squared}</p>
+                </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500 mb-1">MAE</p>
+                  <p className="text-lg font-bold font-mono text-sky-400">{Number(forecastData.mae_kwh).toLocaleString("en-IN")} <span className="text-[10px] text-slate-500">kWh</span></p>
+                </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500 mb-1">Net-Zero Year</p>
+                  <p className="text-lg font-bold font-mono text-amber-400">{forecastData.net_zero_year}</p>
+                </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500 mb-1">Solar Capacity</p>
+                  <p className="text-lg font-bold font-mono text-violet-400">{forecastData.config?.solar_capacity_kw} <span className="text-[10px] text-slate-500">kW</span></p>
+                </div>
+              </div>
+            </div>
+
+            {/* Baseline 2025 */}
+            <div className="glass-card accent-bar-amber p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 rounded-xl bg-amber-500/10 border border-white/[0.04]">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200">Baseline (2025)</h3>
+                  <p className="text-[10px] text-slate-500">Current campus energy profile</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04] text-center">
+                  <p className="text-[10px] text-slate-500 mb-1">Consumption</p>
+                  <p className="text-sm font-bold font-mono text-slate-200">{Number(forecastData.baseline_2025?.consumption_kwh).toLocaleString("en-IN")} kWh</p>
+                </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04] text-center">
+                  <p className="text-[10px] text-slate-500 mb-1">Annual Bill</p>
+                  <p className="text-sm font-bold font-mono text-slate-200">₹{Number(forecastData.baseline_2025?.annual_bill_inr).toLocaleString("en-IN")}</p>
+                </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04] text-center">
+                  <p className="text-[10px] text-slate-500 mb-1">Carbon Emissions</p>
+                  <p className="text-sm font-bold font-mono text-slate-200">{forecastData.baseline_2025?.carbon_emissions_tonnes} T CO₂</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Demand vs Solar Chart */}
+            <div className="glass-card accent-bar-sky p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 rounded-xl bg-sky-500/10 border border-white/[0.04]">
+                  <BarChart3 className="w-4 h-4 text-sky-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200">Demand vs Solar Generation</h3>
+                  <p className="text-[10px] text-slate-500">Historical + Projected with confidence band</p>
+                </div>
+              </div>
+
+              <ResponsiveContainer width="100%" height={320}>
+                <AreaChart
+                  data={[
+                    ...(forecastData.historical || []).map(h => ({
+                      year: h.year,
+                      consumption: h.consumption_kwh,
+                      type: "historical",
+                    })),
+                    ...(forecastData.forecast || []).map(f => ({
+                      year: f.year,
+                      consumption: f.predicted_consumption_kwh,
+                      upper: f.upper_band_kwh,
+                      lower: f.lower_band_kwh,
+                      solar: f.solar_generation_kwh,
+                      net: f.net_grid_dependency_kwh,
+                      type: "forecast",
+                    })),
+                  ]}
+                  margin={{ top: 8, right: 12, left: 8, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="fcDemandGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#f97316" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#f97316" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="fcSolarGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#06b6d4" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="fcBandGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#f97316" stopOpacity={0.1} />
+                      <stop offset="100%" stopColor="#f97316" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 6" stroke="rgba(255,255,255,0.03)" vertical={false} />
+                  <XAxis dataKey="year" tick={{ fontSize: 10, fill: "#475569" }} tickLine={false} axisLine={{ stroke: "rgba(255,255,255,0.04)" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#475569" }} tickLine={false} axisLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip
+                    contentStyle={{ background: "rgba(12,18,32,0.95)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", fontSize: "11px", backdropFilter: "blur(12px)" }}
+                    formatter={(val, name) => [`${Number(val).toLocaleString("en-IN")} kWh`, name]}
+                  />
+                  <Legend verticalAlign="top" height={30} formatter={v => <span className="text-[11px] text-slate-400">{v}</span>} />
+                  <Area type="monotone" dataKey="upper" name="Upper Band" stroke="none" fill="url(#fcBandGrad)" fillOpacity={1} />
+                  <Area type="monotone" dataKey="lower" name="Lower Band" stroke="none" fill="#000" fillOpacity={0} />
+                  <Area type="monotone" dataKey="consumption" name="Demand (kWh)" stroke="#f97316" fill="url(#fcDemandGrad)" strokeWidth={2.5} dot={{ r: 3, fill: "#f97316" }} />
+                  <Area type="monotone" dataKey="solar" name="Solar (kWh)" stroke="#06b6d4" fill="url(#fcSolarGrad)" strokeWidth={2.5} dot={{ r: 3, fill: "#06b6d4" }} />
+                  <Area type="monotone" dataKey="net" name="Grid Dep. (kWh)" stroke="#a78bfa" fill="none" strokeWidth={1.5} strokeDasharray="6 3" dot={{ r: 2, fill: "#a78bfa" }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Forecast Table */}
+            <div className="glass-card accent-bar-emerald p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-white/[0.04]">
+                  <Download className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200">Year-wise Forecast Detail</h3>
+                  <p className="text-[10px] text-slate-500">{forecastData.forecast?.length} years projected</p>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.06]">
+                      <th className="text-left py-2 px-2 text-slate-500 font-medium">Year</th>
+                      <th className="text-right py-2 px-2 text-slate-500 font-medium">Demand</th>
+                      <th className="text-right py-2 px-2 text-slate-500 font-medium">Solar</th>
+                      <th className="text-right py-2 px-2 text-slate-500 font-medium">Net Grid</th>
+                      <th className="text-right py-2 px-2 text-slate-500 font-medium">CO₂ (T)</th>
+                      <th className="text-right py-2 px-2 text-slate-500 font-medium">Bill (₹)</th>
+                      <th className="text-right py-2 px-2 text-slate-500 font-medium">Savings</th>
+                      <th className="text-right py-2 px-2 text-slate-500 font-medium">Offset</th>
+                      <th className="text-right py-2 px-2 text-slate-500 font-medium">Students</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {forecastData.forecast?.map((f, i) => (
+                      <tr key={f.year} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                        <td className="py-2 px-2 text-slate-300 font-mono font-semibold">{f.year}</td>
+                        <td className="py-2 px-2 text-right text-slate-300 font-mono">{Number(f.predicted_consumption_kwh).toLocaleString("en-IN")}</td>
+                        <td className="py-2 px-2 text-right font-mono" style={{ color: f.solar_generation_kwh > 0 ? "#06b6d4" : "#64748b" }}>{Number(f.solar_generation_kwh).toLocaleString("en-IN")}</td>
+                        <td className="py-2 px-2 text-right text-slate-400 font-mono">{Number(f.net_grid_dependency_kwh).toLocaleString("en-IN")}</td>
+                        <td className="py-2 px-2 text-right text-slate-400 font-mono">{f.carbon_emissions_tonnes}</td>
+                        <td className="py-2 px-2 text-right text-slate-400 font-mono">₹{Number(f.annual_electricity_bill_inr).toLocaleString("en-IN")}</td>
+                        <td className="py-2 px-2 text-right font-mono" style={{ color: f.savings_vs_baseline_inr > 0 ? "#34d399" : "#64748b" }}>
+                          {f.savings_vs_baseline_inr > 0 ? "+" : ""}₹{Number(f.savings_vs_baseline_inr).toLocaleString("en-IN")}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono" style={{ color: f.renewable_offset_pct > 0 ? "#fbbf24" : "#64748b" }}>{f.renewable_offset_pct}%</td>
+                        <td className="py-2 px-2 text-right text-slate-500 font-mono">{Number(f.students_projected).toLocaleString("en-IN")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Anomaly Detection */}
+            {forecastData.anomalies?.length > 0 && (
+              <div className="glass-card accent-bar-amber p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-2 rounded-xl bg-amber-500/10 border border-white/[0.04]">
+                    <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-200">Anomaly Detection</h3>
+                    <p className="text-[10px] text-slate-500">Year-over-year growth analysis (threshold: 7%)</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                  {forecastData.anomalies.map(a => (
+                    <div
+                      key={a.year}
+                      className={`rounded-xl p-3 border text-center ${
+                        a.flag === "HIGH GROWTH"
+                          ? "bg-amber-500/[0.06] border-amber-500/15"
+                          : "bg-white/[0.02] border-white/[0.04]"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold text-slate-300 font-mono">{a.year}</p>
+                      <p className={`text-sm font-bold font-mono mt-1 ${
+                        a.flag === "HIGH GROWTH" ? "text-amber-400" : "text-emerald-400"
+                      }`}>
+                        {a.yoy_growth_pct}%
+                      </p>
+                      <p className="text-[9px] text-slate-500 mt-1">{a.flag === "HIGH GROWTH" ? "⚠ High" : "✓ Normal"}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Config Summary */}
+            <div className="glass-card p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-2 rounded-xl bg-slate-500/10 border border-white/[0.04]">
+                  <Info className="w-4 h-4 text-slate-400" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-200">Model Configuration</h3>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                {forecastData.config && Object.entries(forecastData.config).map(([k, v]) => (
+                  <div key={k} className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.04]">
+                    <p className="text-[9px] text-slate-600 truncate">{k.replace(/_/g, " ")}</p>
+                    <p className="text-xs text-slate-300 font-mono font-semibold">{v}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <p className="text-[10px] text-slate-500 text-center">
+                  Features: {forecastData.features?.join(", ")} · Residual σ: {Number(forecastData.residual_std).toLocaleString("en-IN")} kWh
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {forecastData?.error && (
+          <div className="glass-card p-8 flex flex-col items-center justify-center text-center">
+            <AlertTriangle className="w-6 h-6 text-amber-500 mb-2" />
+            <p className="text-sm text-amber-400">Forecast error: {forecastData.error}</p>
+            <p className="text-[10px] text-slate-600 mt-1">Ensure backend is running with numpy & scikit-learn installed</p>
+          </div>
+        )}
+
+      </div>
+      )}
     </div>
   );
 }

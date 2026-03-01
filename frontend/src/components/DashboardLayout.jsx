@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   BarChart3,
   Calculator,
-  Map,
   ChevronLeft,
   ChevronRight,
   Building2,
@@ -21,7 +20,6 @@ const navItems = [
   { key: "solar",       label: "Solar Energy",          icon: Sun },
   { key: "renewable",   label: "Renewable Simulator",   icon: Leaf },
   { key: "roi",         label: "ROI Calculator",        icon: Calculator },
-  { key: "roadmap",     label: "Roadmap",               icon: Map },
 ];
 
 export default function DashboardLayout({

@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from sklearn.linear_model import LinearRegression
+from backend.forecasting_model import run_forecast as _run_forecast
 
 load_dotenv()
 
@@ -52,6 +53,8 @@ kpi_col = None
 MEM_BLOCKS = []
 MEM_ENERGY = deque(maxlen=5000)
 MEM_KPIS = {}
+MEM_BLOCK_CONSUMPTION = []   # [{year, month, block, kwh, cost, timestamp}]
+_consumption_lock = threading.Lock()
 _mem_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
@@ -845,9 +848,9 @@ def api_predict_surge():
 
 
 # ---------------------------------------------------------------------------
-# Solar Energy — Live PV Simulation  (uses solar_simulator.py)
+# Solar Energy — Live PV Simulation  (backend/solar_energy_analysis/)
 # ---------------------------------------------------------------------------
-from solar_simulator import (
+from backend.solar_energy_analysis import (
     fetch_live_weather,
     fetch_full_weather,
     estimate_irradiance,
@@ -928,6 +931,62 @@ def api_solar_live():
             },
             "error": str(exc),
         })
+
+
+# ---------------------------------------------------------------------------
+# Block Consumption Data  (Analysis Models)
+# ---------------------------------------------------------------------------
+@app.route("/api/block-consumption", methods=["GET"])
+def get_block_consumption():
+    """Return all saved block consumption records."""
+    with _consumption_lock:
+        return jsonify(list(MEM_BLOCK_CONSUMPTION))
+
+
+@app.route("/api/block-consumption", methods=["POST"])
+def save_block_consumption():
+    """Save / update monthly block consumption.
+    Body: { year, month, blocks: { "STME Block": kwh, ... } }
+    """
+    body = request.get_json(force=True)
+    year = int(body.get("year", 2026))
+    month = int(body.get("month", 1))
+    blocks_data = body.get("blocks", {})
+    rate = float(body.get("rate", 8))  # ₹/kWh
+    saved = []
+    with _consumption_lock:
+        for block_name, kwh_val in blocks_data.items():
+            kwh = float(kwh_val)
+            # Remove old entry for same year/month/block
+            MEM_BLOCK_CONSUMPTION[:] = [
+                r for r in MEM_BLOCK_CONSUMPTION
+                if not (r["year"] == year and r["month"] == month and r["block"] == block_name)
+            ]
+            record = {
+                "year": year,
+                "month": month,
+                "block": block_name,
+                "kwh": kwh,
+                "cost": round(kwh * rate, 2),
+                "rate": rate,
+                "timestamp": datetime.now().isoformat(),
+            }
+            MEM_BLOCK_CONSUMPTION.append(record)
+            saved.append(record)
+    return jsonify({"status": "ok", "saved": len(saved), "records": saved})
+
+
+# ---------------------------------------------------------------------------
+# Demand Forecast  (Analysis Models)
+# ---------------------------------------------------------------------------
+@app.route("/api/forecast", methods=["GET"])
+def get_forecast():
+    """Return the full energy demand forecast report."""
+    try:
+        report = _run_forecast()
+        return jsonify(report)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------
