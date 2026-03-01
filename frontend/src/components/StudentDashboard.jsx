@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import "./StudentPortal.css";
 
 const BASE = process.env.REACT_APP_API_URL || "";
@@ -7,10 +8,13 @@ const BASE = process.env.REACT_APP_API_URL || "";
    StudentDashboard — full CampusZero student portal
    Mirrors the standalone HTML portal as a React SPA component.
    All data is fetched from /api/student/* Flask endpoints.
+   Page navigation is URL-based via React Router.
    ────────────────────────────────────────────────────────────── */
 export default function StudentDashboard({ onLogout }) {
-  // Navigation
-  const [page, setPage] = useState("dashboard");
+  // Navigation — driven by URL params
+  const { page: urlPage } = useParams();
+  const page = urlPage || "dashboard";
+  const routerNav = useNavigate();
 
   // Global state
   const [profile, setProfile] = useState(null);
@@ -30,23 +34,14 @@ export default function StudentDashboard({ onLogout }) {
   const [events, setEvents] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [shopItems, setShopItems] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [taskFilter, setTaskFilter] = useState("all");
 
-  // Call center state
-  const [callActive, setCallActive] = useState(false);
-  const [callSeconds, setCallSeconds] = useState(0);
-  const [callCaller, setCallCaller] = useState("");
-  const [callReason, setCallReason] = useState("");
-  const [callMuted, setCallMuted] = useState(false);
-  const [callHeld, setCallHeld] = useState(false);
-  const [showIncoming, setShowIncoming] = useState(false);
-  const [incCaller, setIncCaller] = useState("CampusZero AI");
-  const [incReason, setIncReason] = useState("⚡ Lab 204 Energy Spike");
-  const [ccTab, setCcTab] = useState("inbound");
-  const [dialNumber, setDialNumber] = useState("");
-  const [agentScript, setAgentScript] = useState("Select a scenario below to preview the Voice Agent script...");
-  const [waveBars, setWaveBars] = useState(Array(18).fill(4));
-  const waveIntervalRef = useRef(null);
-  const callIntervalRef = useRef(null);
+  // Request a Call state
+  const [callPhone, setCallPhone] = useState("+91");
+  const [callRequesting, setCallRequesting] = useState(false);
+  const [callSuccess, setCallSuccess] = useState(false);
+  const [callError, setCallError] = useState("");
 
   // Scanner state
   const [scanResult, setScanResult] = useState(null);
@@ -162,6 +157,13 @@ export default function StudentDashboard({ onLogout }) {
     } catch { /* silent */ }
   }, []);
 
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch(`${BASE}/api/student/tasks`);
+      if (res.ok) setTasks(await res.json());
+    } catch { /* silent */ }
+  }, []);
+
   // Initial load
   useEffect(() => {
     fetchDashboard();
@@ -179,9 +181,10 @@ export default function StudentDashboard({ onLogout }) {
       case "feed": fetchFeed(); break;
       case "analytics": fetchAnalytics(); break;
       case "shop": fetchShop(); break;
+      case "tasks": fetchTasks(); break;
       default: break;
     }
-  }, [page, fetchDashboard, fetchLeaderboard, fetchChallenges, fetchWallet, fetchBadges, fetchFeed, fetchAnalytics, fetchShop]);
+  }, [page, fetchDashboard, fetchLeaderboard, fetchChallenges, fetchWallet, fetchBadges, fetchFeed, fetchAnalytics, fetchShop, fetchTasks]);
 
   // Live data refresh
   useEffect(() => {
@@ -191,10 +194,8 @@ export default function StudentDashboard({ onLogout }) {
 
   // ── Navigation ────────────────────────────────────────
   const navTo = (p) => {
-    setPage(p);
-    if (p === "callcenter") {
-      setTimeout(() => { if (!callActive) setShowIncoming(true); }, 3000);
-    }
+    routerNav(`/student/${p}`);
+
   };
 
   // ── Coin operations ───────────────────────────────────
@@ -234,64 +235,41 @@ export default function StudentDashboard({ onLogout }) {
     return false;
   };
 
-  // ── Call center logic ─────────────────────────────────
-  const startCall = (caller, reason) => {
-    setCallActive(true);
-    setCallCaller(caller);
-    setCallReason(reason);
-    setCallSeconds(0);
-    setCallMuted(false);
-    setCallHeld(false);
-    setShowIncoming(false);
-    if (callIntervalRef.current) clearInterval(callIntervalRef.current);
-    callIntervalRef.current = setInterval(() => setCallSeconds((s) => s + 1), 1000);
-    if (waveIntervalRef.current) clearInterval(waveIntervalRef.current);
-    waveIntervalRef.current = setInterval(() => {
-      setWaveBars(Array(18).fill(0).map(() => Math.random() * 28 + 4));
-    }, 150);
-  };
+  // ── Request a Call logic ──────────────────────────────
+  const VOICE_AGENT_URL = "http://localhost:3001";
 
-  const endCall = () => {
-    if (callIntervalRef.current) clearInterval(callIntervalRef.current);
-    if (waveIntervalRef.current) clearInterval(waveIntervalRef.current);
-    setCallActive(false);
-    const m = String(Math.floor(callSeconds / 60)).padStart(2, "0");
-    const s = String(callSeconds % 60).padStart(2, "0");
-    showToast("acid", "📞", "Call ended", `Duration ${m}:${s}`, 50);
-    earnCoins(50, "Call completed");
-    setDialNumber("");
-  };
-
-  const toggleMute = () => {
-    setCallMuted((m) => {
-      if (!m) {
-        if (waveIntervalRef.current) clearInterval(waveIntervalRef.current);
-        setWaveBars(Array(18).fill(4));
+  const requestCall = async () => {
+    const num = callPhone.replace(/\s+/g, "");
+    if (num.length < 13 || !num.startsWith("+91")) {
+      setCallError("Please enter a valid 10-digit Indian mobile number");
+      return;
+    }
+    setCallRequesting(true);
+    setCallError("");
+    setCallSuccess(false);
+    try {
+      const res = await fetch(`${VOICE_AGENT_URL}/api/call`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: num }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCallSuccess(true);
+        showToast("acid", "📞", "Call Requested!", "You will receive a call shortly");
       } else {
-        waveIntervalRef.current = setInterval(() => {
-          setWaveBars(Array(18).fill(0).map(() => Math.random() * 28 + 4));
-        }, 150);
+        setCallError(data.error || "Failed to request call");
       }
-      return !m;
-    });
-  };
-
-  const toggleHold = () => {
-    setCallHeld((h) => {
-      if (!h) {
-        if (callIntervalRef.current) clearInterval(callIntervalRef.current);
-      } else {
-        callIntervalRef.current = setInterval(() => setCallSeconds((s) => s + 1), 1000);
-      }
-      return !h;
-    });
+    } catch (err) {
+      setCallError("Could not reach voice agent server. Please try again.");
+    } finally {
+      setCallRequesting(false);
+    }
   };
 
   // Cleanup intervals
   useEffect(() => {
     return () => {
-      if (callIntervalRef.current) clearInterval(callIntervalRef.current);
-      if (waveIntervalRef.current) clearInterval(waveIntervalRef.current);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, []);
@@ -392,13 +370,7 @@ export default function StudentDashboard({ onLogout }) {
     earnCoins(50, "Event RSVP");
   };
 
-  // ── Agent scripts ─────────────────────────────────────
-  const agentScripts = {
-    waste: "Hi, this is CampusZero AI calling from NMIMS Energy Management. I've detected unusual energy activity in Chemistry Lab 204 — lights and AC running for 95 minutes with zero occupancy detected. Estimated daily cost: ₹327. Press 1 to acknowledge, press 2 to schedule shutdown, press 3 to alert the facilities team immediately.",
-    report: "Good morning! CampusZero AI here with your weekly energy report for MPSTME. Your department scored 74 out of 100 this week — up 8 points. You're ranked 3rd of 6 departments campus-wide. Biggest win: Lab 102 cut overnight consumption by 40%.",
-    solar: "Hello! Quick solar alert from CampusZero AI. NMIMS rooftop panels will hit peak generation between 11 AM and 2 PM today — producing 24% more than current campus demand. I recommend shifting EV charging and server backups to this window.",
-    streak: "Hey! CampusZero AI here. Your green streak is active — fantastic work! Just a heads-up: you haven't logged a green action yet today. Your department is ranked #2 on the campus leaderboard. One quick scan could push MPSTME to #1!",
-  };
+
 
   // ── Energy Map Canvas ─────────────────────────────────
   useEffect(() => {
@@ -573,7 +545,6 @@ export default function StudentDashboard({ onLogout }) {
   };
   const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const fmt = (n) => (n || 0).toLocaleString("en-IN");
-  const fmtTimer = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   const xpPct = p.xp_next ? ((p.xp || 0) / p.xp_next * 100) : 0;
 
   const lb = leaderboard || {};
@@ -592,7 +563,8 @@ export default function StudentDashboard({ onLogout }) {
         { id: "leaderboard", icon: "🏆", text: "Leaderboard", badge: "3" },
         { id: "challenges", icon: "🎯", text: "Challenges", badge: "4 NEW", badgeRed: true },
         { id: "scanner", icon: "📸", text: "AI Scanner" },
-        { id: "callcenter", icon: "📞", text: "Call Center", badge: "2 Missed", badgeRed: true },
+        { id: "callcenter", icon: "📞", text: "Request a Call" },
+        { id: "tasks", icon: "✅", text: "Green Tasks", badge: `${tasks.filter(t => !t.completed).length}` },
       ],
     },
     {
@@ -933,187 +905,119 @@ export default function StudentDashboard({ onLogout }) {
     </>
   );
 
-  // ── Call Center Page ──────────────────────────────────
+  // ── Request a Call Page ────────────────────────────────
   const renderCallCenter = () => (
-    <>
-      {callActive && (
-        <div className="sp-active-call-banner">
-          <div>
-            <div className="sp-ac-badge"><span className="sp-dot" /> LIVE CALL</div>
-            <div className="sp-ac-caller">{callCaller}</div>
-            <div className="sp-ac-reason">{callReason}</div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div className="sp-ac-timer">{fmtTimer(callSeconds)}</div>
-            <div className="sp-waveform">
-              {waveBars.map((h, i) => <div key={i} className="sp-wave-bar" style={{ height: h }} />)}
-            </div>
-          </div>
-          <div className="sp-ac-controls">
-            <button className={`sp-ctrl-btn${callMuted ? " active" : ""}`} onClick={toggleMute}>🎤</button>
-            <button className="sp-ctrl-btn" title="Speaker">🔊</button>
-            <button className={`sp-ctrl-btn${callHeld ? " active" : ""}`} onClick={toggleHold}>⏸️</button>
-            <button className="sp-ctrl-btn">⌨️</button>
-            <button className="sp-ctrl-btn end" onClick={endCall}>📵</button>
-          </div>
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
+      <div className="sp-card" style={{ maxWidth: 480, width: "100%", padding: 40, textAlign: "center" }}>
+        {/* Header */}
+        <div style={{ fontSize: 48, marginBottom: 16 }}>📞</div>
+        <div style={{ fontFamily: "var(--font-heading)", fontSize: 24, fontWeight: 700, color: "white", marginBottom: 8 }}>
+          Have a Query?
         </div>
-      )}
-
-      <div className="sp-cc-grid">
-        <div className="sp-cc-left">
-          <div className="sp-tabs" style={{ borderBottom: "1px solid var(--border)" }}>
-            {["inbound", "outbound", "log", "agent"].map((t) => (
-              <button key={t} className={`sp-tab${ccTab === t ? " active" : ""}`} onClick={() => setCcTab(t)}>
-                {t === "agent" ? <>AI AGENT <span className="sp-nav-badge text-acid" style={{ marginLeft: 8, border: "1px solid var(--accent)" }}>PRO</span></> : t.toUpperCase()}
-              </button>
-            ))}
-          </div>
-
-          {/* Inbound tab */}
-          {ccTab === "inbound" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20, marginTop: 20 }}>
-              <div className="sp-live-status" style={{ marginBottom: 0 }}><span className="sp-dot" style={{ background: "var(--cyan)" }} /> Ready to receive calls</div>
-
-              {showIncoming && (
-                <div className="sp-inc-widget">
-                  <div className="sp-inc-ava">🤖<div className="sp-inc-ring" /><div className="sp-inc-ring" /></div>
-                  <div className="sp-inc-name">{incCaller}</div>
-                  <div className="sp-inc-reason">{incReason}</div>
-                  <div className="sp-inc-actions">
-                    <button className="sp-inc-btn acc" onClick={() => { setShowIncoming(false); startCall(incCaller, incReason); }}>✅</button>
-                    <button className="sp-inc-btn dec" onClick={() => { setShowIncoming(false); showToast("coral", "📞", "Call declined", `Missed: ${incCaller}`); }}>❌</button>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fog)" }}>SIMULATE INCOMING CALL</div>
-              <div style={{ display: "flex", gap: 12 }}>
-                {[
-                  { caller: "CampusZero AI", reason: "⚡ Lab 204 Energy Spike", label: "📞 AI: Waste Alert" },
-                  { caller: "Rajesh Kumar", reason: "🔧 Maintenance Request", label: "📞 Facilities Team" },
-                  { caller: "Dr. Mehta HOD", reason: "📊 Weekly Energy Debrief", label: "📞 HOD Report" },
-                ].map((s) => (
-                  <button key={s.label} className="sp-btn sp-btn-outline" style={{ flex: 1 }} onClick={() => { setIncCaller(s.caller); setIncReason(s.reason); setShowIncoming(true); }}>{s.label}</button>
-                ))}
-              </div>
-
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fog)", display: "flex", justifyContent: "space-between" }}><span>MISSED (2)</span><span className="text-coral" style={{ cursor: "pointer" }}>Clear</span></div>
-              <div className="sp-card" style={{ padding: 12 }}>
-                <div className="sp-data-row"><div className="sp-dr-icon">❌</div><div className="sp-dr-main"><div className="sp-dr-title">CampusZero AI</div><div className="sp-dr-sub">Lab 204 Alert</div></div><div className="sp-dr-right"><div className="sp-dr-sub">10:42 AM</div></div></div>
-                <div className="sp-data-row"><div className="sp-dr-icon">❌</div><div className="sp-dr-main"><div className="sp-dr-title">Dr. Mehta HOD</div><div className="sp-dr-sub">Weekly Report</div></div><div className="sp-dr-right"><div className="sp-dr-sub">Yesterday</div></div></div>
-              </div>
-            </div>
-          )}
-
-          {/* Outbound tab */}
-          {ccTab === "outbound" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20, marginTop: 20 }}>
-              <div className="sp-dialpad-wrap">
-                <div className="sp-dial-display">
-                  <span style={{ opacity: dialNumber ? 1 : 0.5, flex: 1, textAlign: "right" }}>{dialNumber || "_"}</span>
-                  <button onClick={() => setDialNumber((d) => d.slice(0, -1))} style={{ background: "transparent", border: "none", color: "var(--fog)", fontSize: 24, cursor: "pointer" }}>⌫</button>
-                </div>
-                <div className="sp-dial-grid">
-                  {[["1", ""], ["2", "ABC"], ["3", "DEF"], ["4", "GHI"], ["5", "JKL"], ["6", "MNO"], ["7", "PQRS"], ["8", "TUV"], ["9", "WXYZ"], ["*", ""], ["0", "+"], ["#", ""]].map(([n, a]) => (
-                    <div key={n} className="sp-dial-key" onClick={() => setDialNumber((d) => d + n)}>
-                      <div className="sp-dial-num">{n}</div>
-                      {a && <div className="sp-dial-alpha">{a}</div>}
-                    </div>
-                  ))}
-                </div>
-                <button className="sp-btn sp-btn-primary" style={{ padding: 16, fontSize: 14, width: "100%" }} onClick={() => { if (dialNumber) startCall(dialNumber, "Outbound Call"); }}>📞 CALL</button>
-              </div>
-
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fog)" }}>QUICK DIAL</div>
-              <div className="sp-grid-2">
-                {[
-                  { ava: "🤖", color: "var(--accent)", name: "CampusZero AI", sub: "Automated System" },
-                  { ava: "🔧", color: "var(--coral)", name: "Facilities Team", sub: "Rajesh Kumar" },
-                  { ava: "👨‍🏫", color: "var(--violet)", name: "Dr. Mehta HOD", sub: "MPSTME Dean" },
-                  { ava: "🧪", color: "var(--yellow)", name: "Lab Coordinator", sub: "Chemistry / Physics" },
-                ].map((c) => (
-                  <div key={c.name} className="sp-data-row sp-card" style={{ padding: 12 }}>
-                    <div className="sp-lb-ava" style={{ background: c.color, width: 32, height: 32 }}>{c.ava}</div>
-                    <div className="sp-dr-main"><div className="sp-dr-title">{c.name}</div><div className="sp-dr-sub">{c.sub}</div></div>
-                    <button className="sp-btn sp-btn-outline" style={{ padding: "4px 8px" }} onClick={() => startCall(c.name, "Direct Line")}>📞</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Call Log tab */}
-          {ccTab === "log" && (
-            <div className="sp-card" style={{ padding: 0, marginTop: 20 }}>
-              {[
-                { icon: "📥", color: "text-acid", name: "CampusZero AI", sub: "Lab 204 Alert · 1:23", coins: "+75🪙", time: "Today 10:42" },
-                { icon: "📤", color: "text-cyan", name: "Facilities Team", sub: "Reported AC fault · 2:47", coins: "--", time: "Yesterday" },
-                { icon: "❌", color: "text-coral", name: "Dr. Mehta HOD", sub: "Dept report · --", coins: "--", time: "Yesterday" },
-                { icon: "📥", color: "text-acid", name: "CampusZero AI", sub: "Solar Peak Alert · 0:48", coins: "+50🪙", time: "2 days ago" },
-                { icon: "📤", color: "text-cyan", name: "Lab Coordinator", sub: "Empty lab lights · 1:12", coins: "+100🪙", time: "3 days ago" },
-              ].map((l, i) => (
-                <div key={i} className="sp-data-row">
-                  <div className={`sp-dr-icon ${l.color}`}>{l.icon}</div>
-                  <div className="sp-dr-main"><div className="sp-dr-title">{l.name}</div><div className="sp-dr-sub">{l.sub}</div></div>
-                  <div className="sp-dr-right"><div className={`sp-dr-stat${l.coins.startsWith("+") ? " text-acid" : ""}`}>{l.coins}</div><div className="sp-dr-sub">{l.time}</div></div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Agent tab */}
-          {ccTab === "agent" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 20 }}>
-              <div className="sp-card" style={{ borderLeft: "4px solid var(--accent)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 700 }}>CampusZero Voice Agent</div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fog)" }}>Powered by Vapi.ai + ElevenLabs</div>
-                </div>
-                <div className="sp-live-status"><span className="sp-dot" /> READY</div>
-              </div>
-              <div style={{ background: "rgba(0,0,0,0.5)", border: "1px solid var(--border)", borderRadius: 8, padding: 16, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)", minHeight: 140, lineHeight: 1.5 }}>
-                {agentScript}
-              </div>
-              {["waste", "report", "solar", "streak"].map((key) => (
-                <button key={key} className="sp-btn sp-btn-outline" style={{ justifyContent: "flex-start" }} onClick={() => setAgentScript(agentScripts[key])}>
-                  {key === "waste" ? "⚠️ Waste Alert Call" : key === "report" ? "📊 Weekly HOD Report" : key === "solar" ? "☀️ Solar Peak Notification" : "🔥 Streak Reminder"}
-                </button>
-              ))}
-              <button className="sp-btn sp-btn-primary" style={{ marginTop: 10, padding: 16 }} onClick={() => startCall("CampusZero Voice Agent", "Automated Outbound")}>🚀 DEPLOY CALL</button>
-            </div>
-          )}
+        <div style={{ fontFamily: "var(--font-heading)", fontSize: 18, color: "var(--accent)", marginBottom: 8 }}>
+          Request a Call
+        </div>
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 14, color: "var(--fog)", marginBottom: 32, lineHeight: 1.6 }}>
+          Our CampusZero AI voice agent will call you to help with energy queries, waste reports, or campus sustainability questions.
         </div>
 
-        <div className="sp-cc-right">
-          <div className="sp-card sp-grid-2" style={{ background: "var(--bg-elevated)", marginBottom: 20 }}>
-            <div><div className="sp-dr-sub" style={{ marginBottom: 4 }}>Calls This Week</div><div style={{ fontFamily: "var(--font-heading)", fontSize: 24, color: "var(--accent)" }}>12</div></div>
-            <div><div className="sp-dr-sub" style={{ marginBottom: 4 }}>Avg Duration</div><div style={{ fontFamily: "var(--font-heading)", fontSize: 24, color: "var(--cyan)" }}>3:24</div></div>
-            <div><div className="sp-dr-sub" style={{ marginBottom: 4 }}>Waste Reported</div><div style={{ fontFamily: "var(--font-heading)", fontSize: 24, color: "var(--coral)" }}>8</div></div>
-            <div><div className="sp-dr-sub" style={{ marginBottom: 4 }}>Calls Missed</div><div style={{ fontFamily: "var(--font-heading)", fontSize: 24, color: "var(--yellow)" }}>2</div></div>
+        {/* Phone input */}
+        <div style={{ marginBottom: 24 }}>
+          <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fog)", display: "block", textAlign: "left", marginBottom: 8 }}>
+            MOBILE NUMBER
+          </label>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 0,
+            background: "var(--bg-elevated)", border: "1px solid var(--border)",
+            borderRadius: 8, overflow: "hidden"
+          }}>
+            <div style={{
+              padding: "14px 16px", fontFamily: "var(--font-mono)", fontSize: 16,
+              color: "var(--accent)", background: "rgba(74,155,109,0.1)",
+              borderRight: "1px solid var(--border)", fontWeight: 600,
+              userSelect: "none"
+            }}>
+              🇮🇳 +91
+            </div>
+            <input
+              type="tel"
+              value={callPhone.replace("+91", "")}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                setCallPhone("+91" + digits);
+              }}
+              placeholder="Enter 10-digit number"
+              maxLength={10}
+              style={{
+                flex: 1, padding: "14px 16px", background: "transparent",
+                border: "none", outline: "none", color: "white",
+                fontFamily: "var(--font-mono)", fontSize: 16, letterSpacing: 1
+              }}
+            />
           </div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fog)", textAlign: "left", marginTop: 6 }}>
+            Full number: {callPhone.length > 3 ? callPhone : "+91XXXXXXXXXX"}
+          </div>
+        </div>
 
-          <div className="sp-card">
-            <div className="sp-section-title text-cyan" style={{ marginBottom: 16 }}>AI Agent Status</div>
-            {[
-              { color: "var(--accent)", name: "EnergyMonitorAgent", sub: "Watching 24 buildings" },
-              { color: "var(--coral)", name: "AnomalyDetectionAgent", sub: "Lab 204 alert active", subColor: "text-coral" },
-              { color: "var(--yellow)", name: "PredictionAgent", sub: "72h forecast running" },
-              { color: "var(--accent)", name: "RedirectAgent", sub: "EV Bay 3 routing" },
-              { color: "var(--cyan)", name: "CarbonAccountingAgent", sub: "Logging 142kg saved" },
-              { color: "var(--accent)", name: "VoiceCallAgent", sub: "Ready to deploy", subColor: "text-acid" },
-            ].map((a) => (
-              <div key={a.name} className="sp-data-row">
-                <span className="sp-dot" style={{ background: a.color, animation: a.color === "var(--coral)" ? "sp-pulse 2s infinite" : "none" }} />
-                <div className="sp-dr-main">
-                  <div className="sp-dr-title" style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{a.name}</div>
-                  <div className={`sp-dr-sub ${a.subColor || ""}`}>{a.sub}</div>
-                </div>
-              </div>
-            ))}
+        {/* Error message */}
+        {callError && (
+          <div style={{
+            background: "rgba(193,122,94,0.1)", border: "1px solid var(--coral)",
+            borderRadius: 8, padding: "10px 16px", marginBottom: 16,
+            fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--coral)", textAlign: "left"
+          }}>
+            ⚠️ {callError}
           </div>
+        )}
+
+        {/* Success message */}
+        {callSuccess && (
+          <div style={{
+            background: "rgba(74,155,109,0.1)", border: "1px solid var(--accent)",
+            borderRadius: 8, padding: "16px", marginBottom: 16, textAlign: "left"
+          }}>
+            <div style={{ fontFamily: "var(--font-heading)", fontSize: 14, color: "var(--accent)", marginBottom: 4 }}>
+              ✅ Call Requested Successfully!
+            </div>
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--fog)" }}>
+              You will receive a call from our AI agent shortly on {callPhone}. Please keep your phone nearby.
+            </div>
+          </div>
+        )}
+
+        {/* Request button */}
+        <button
+          className="sp-btn sp-btn-primary"
+          disabled={callRequesting || callPhone.length < 13}
+          onClick={requestCall}
+          style={{
+            width: "100%", padding: 16, fontSize: 16, fontWeight: 700,
+            opacity: callRequesting || callPhone.length < 13 ? 0.5 : 1,
+            cursor: callRequesting || callPhone.length < 13 ? "not-allowed" : "pointer"
+          }}
+        >
+          {callRequesting ? "⏳ Requesting Call..." : "📞 Request a Call"}
+        </button>
+
+        {/* Verification note */}
+        <div style={{
+          marginTop: 20, background: "rgba(255,193,59,0.08)", border: "1px solid rgba(255,193,59,0.25)",
+          borderRadius: 8, padding: "12px 16px", textAlign: "left"
+        }}>
+          <div style={{ fontFamily: "var(--font-heading)", fontSize: 12, color: "#ffc13b", marginBottom: 4 }}>⚠️ Note</div>
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--fog)", lineHeight: 1.6 }}>
+            This feature requires your mobile number to be <strong style={{ color: "white" }}>verified</strong> in our system before you can receive a call.
+            Unverified numbers will not receive the callback. Please contact the admin to get your number verified.
+          </div>
+        </div>
+
+        {/* Footer note */}
+        <div style={{ marginTop: 16, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fog)", lineHeight: 1.6 }}>
+          Powered by <span className="text-acid">CampusZero AI</span> × <span className="text-cyan">Twilio</span> × <span style={{ color: "var(--violet)" }}>Ultravox</span>
         </div>
       </div>
-    </>
+    </div>
   );
 
   // ── Wallet Page ───────────────────────────────────────
@@ -1152,6 +1056,114 @@ export default function StudentDashboard({ onLogout }) {
           ))}
         </div>
       </div>
+    );
+  };
+
+  // ── Tasks Page ────────────────────────────────────────
+  const renderTasks = () => {
+    const cats = ["all", "daily", "weekly", "campus"];
+    const filtered = taskFilter === "all" ? tasks : tasks.filter((t) => t.category === taskFilter);
+    const completed = tasks.filter((t) => t.completed).length;
+    const total = tasks.length;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    const completeTask = async (taskId) => {
+      try {
+        const res = await fetch(`${BASE}/api/student/tasks/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task_id: taskId }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCoins(data.balance);
+          setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, completed: true } : t));
+          burstConfetti();
+          showToast("acid", "✅", "Task Complete!", `+${data.reward} GreenCoins earned`, data.reward);
+        }
+      } catch {
+        showToast("coral", "❌", "Error", "Could not complete task.");
+      }
+    };
+
+    return (
+      <>
+        <div className="sp-section-head">
+          <div className="sp-section-title">Green Tasks</div>
+          <div className="sp-greencoin-badge">✅ {completed}/{total} done · {pct}%</div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="sp-card" style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>Daily progress</span>
+            <span style={{ color: "var(--accent)", fontSize: 12, fontWeight: 600 }}>{pct}% complete</span>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 8, height: 10 }}>
+            <div style={{ background: "var(--accent)", height: "100%", borderRadius: 8, width: `${pct}%`, transition: "width 0.5s ease" }} />
+          </div>
+          <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
+            <span style={{ color: "var(--accent)", fontSize: 12 }}>🪙 Green Tokens: {fmt(p.green_tokens || p.total_earned || 0)}</span>
+            <span style={{ color: "var(--cyan)", fontSize: 12 }}>🔥 Streak: {p.streak_days || 0} days</span>
+          </div>
+        </div>
+
+        {/* Filter tabs */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+          {cats.map((c) => (
+            <button key={c} className={`sp-btn ${taskFilter === c ? "sp-btn-primary" : "sp-btn-outline"}`}
+              style={{ padding: "6px 16px", fontSize: 12, textTransform: "capitalize" }}
+              onClick={() => setTaskFilter(c)}
+            >{c === "all" ? "All Tasks" : c}</button>
+          ))}
+        </div>
+
+        {/* Task list */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {filtered.map((task) => (
+            <div key={task.id} className="sp-card" style={{
+              display: "flex", alignItems: "center", gap: 16,
+              opacity: task.completed && !task.repeatable ? 0.5 : 1,
+              borderLeft: `3px solid ${task.completed ? "var(--accent)" : "rgba(255,255,255,0.1)"}`,
+            }}>
+              <div style={{ fontSize: 28, minWidth: 40, textAlign: "center" }}>{task.icon}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <h4 style={{ margin: 0, fontSize: 14 }}>{task.title}</h4>
+                  <span style={{
+                    fontSize: 10, padding: "2px 8px", borderRadius: 10,
+                    background: task.category === "daily" ? "rgba(74,155,109,0.15)" : task.category === "weekly" ? "rgba(90,155,165,0.15)" : "rgba(139,126,168,0.15)",
+                    color: task.category === "daily" ? "var(--accent)" : task.category === "weekly" ? "var(--cyan)" : "var(--violet)",
+                  }}>{task.category}</span>
+                </div>
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>{task.desc}</p>
+                {task.progress !== undefined && task.target && (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 6, height: 6, width: 120 }}>
+                      <div style={{ background: "var(--accent)", height: "100%", borderRadius: 6, width: `${(task.progress / task.target) * 100}%` }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: "var(--fog)" }}>{task.progress}/{task.target}</span>
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: "right", minWidth: 90 }}>
+                <div style={{ color: "var(--accent)", fontWeight: 700, fontSize: 14 }}>+{task.reward} 🪙</div>
+                {task.completed ? (
+                  <span style={{ fontSize: 11, color: "var(--accent)" }}>✓ Done</span>
+                ) : (
+                  <button className="sp-btn sp-btn-primary" style={{ padding: "4px 12px", fontSize: 11, marginTop: 4 }}
+                    onClick={() => completeTask(task.id)}
+                  >Complete</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {filtered.length === 0 && (
+          <div className="sp-card" style={{ textAlign: "center", padding: 40, color: "var(--fog)" }}>No tasks in this category.</div>
+        )}
+      </>
     );
   };
 
@@ -1413,6 +1425,7 @@ export default function StudentDashboard({ onLogout }) {
       case "callcenter": return renderCallCenter();
       case "wallet": return renderWallet();
       case "shop": return renderShop();
+      case "tasks": return renderTasks();
       case "badges": return renderBadges();
       case "feed": return renderFeed();
       case "analytics": return renderAnalytics();

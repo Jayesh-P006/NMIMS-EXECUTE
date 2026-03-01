@@ -1609,52 +1609,271 @@ def get_forecast():
 
 
 # ---------------------------------------------------------------------------
-# Student Portal API
+# Student Portal API  — Full MongoDB-backed with rich mock data
 # ---------------------------------------------------------------------------
 
-# In-memory student data store
 _student_data_lock = threading.Lock()
-MEM_STUDENT_PROFILES = {}  # keyed by student_id
+
+# ── In-memory fallback stores ────────────────────────────
+MEM_STUDENT_PROFILES = {}
 MEM_STUDENT_FEED = []
 MEM_STUDENT_CHALLENGES = []
 MEM_STUDENT_LEADERBOARD = []
+MEM_STUDENT_TASKS = []
+MEM_STUDENT_BADGES = {"earned": [], "locked": []}
+MEM_STUDENT_SHOP = []
+MEM_STUDENT_EVENTS = []
+MEM_STUDENT_NOTIFICATIONS = []
+MEM_STUDENT_TRANSACTIONS = []
+MEM_STUDENT_SCAN_HISTORY = []
+MEM_STUDENT_REDEMPTIONS = []
+MEM_STUDENT_ANALYTICS = {}
 
-def _init_student_data():
-    """Seed default student portal data."""
-    global MEM_STUDENT_LEADERBOARD, MEM_STUDENT_CHALLENGES, MEM_STUDENT_FEED
+# ── Collection names ─────────────────────────────────────
+_STU_COLLECTIONS = [
+    "student_profiles", "student_leaderboard", "student_challenges",
+    "student_feed", "student_transactions", "student_tasks",
+    "student_badges", "student_shop", "student_events",
+    "student_notifications", "student_scan_history", "student_redemptions",
+    "student_analytics",
+]
 
-    MEM_STUDENT_LEADERBOARD = [
-        {"rank": 1, "name": "Neha Kulkarni", "initials": "NK", "dept": "MPSTME", "coins": 5120, "color": "#b8a042"},
-        {"rank": 2, "name": "Arjun Shah", "initials": "AS", "dept": "MBA", "coins": 4980, "color": "#5a9ba5"},
-        {"rank": 3, "name": "Priya Rathod", "initials": "PR", "dept": "MPSTME", "coins": 4820, "color": "#4a9b6d", "is_user": True},
-        {"rank": 4, "name": "Rohan Mehta", "initials": "RM", "dept": "Architecture", "coins": 4100, "color": "#8b7ea8"},
-        {"rank": 5, "name": "Kavya Singh", "initials": "KS", "dept": "Law", "coins": 3850, "color": "#c17a5e"},
-        {"rank": 6, "name": "Ishan Patel", "initials": "IP", "dept": "Pharmacy", "coins": 3600, "color": "#8a8d87"},
-        {"rank": 7, "name": "Sneha Sharma", "initials": "SS", "dept": "Science", "coins": 3420, "color": "#8a8d87"},
-        {"rank": 8, "name": "Aman Jain", "initials": "AJ", "dept": "Commerce", "coins": 3100, "color": "#8a8d87"},
-        {"rank": 9, "name": "Tanya Gupta", "initials": "TG", "dept": "MPSTME", "coins": 2950, "color": "#8a8d87"},
-        {"rank": 10, "name": "Varun Kumar", "initials": "VK", "dept": "MBA", "coins": 2880, "color": "#8a8d87"},
+
+def _seed_student_data():
+    """Seed comprehensive mock data into MongoDB (or in-memory fallback).
+       Idempotent: skips if student_profiles already has data."""
+    global MEM_STUDENT_PROFILES, MEM_STUDENT_LEADERBOARD, MEM_STUDENT_CHALLENGES
+    global MEM_STUDENT_FEED, MEM_STUDENT_TASKS, MEM_STUDENT_BADGES
+    global MEM_STUDENT_SHOP, MEM_STUDENT_EVENTS, MEM_STUDENT_NOTIFICATIONS
+    global MEM_STUDENT_TRANSACTIONS, MEM_STUDENT_SCAN_HISTORY
+    global MEM_STUDENT_REDEMPTIONS, MEM_STUDENT_ANALYTICS
+
+    # ── 1. Leaderboard (15 students) ────────────────────
+    leaderboard = [
+        {"rank": 1,  "name": "Neha Kulkarni",  "initials": "NK", "dept": "MPSTME",       "coins": 5120, "color": "#b8a042", "streak": 18, "scans": 31},
+        {"rank": 2,  "name": "Arjun Shah",      "initials": "AS", "dept": "MBA",           "coins": 4980, "color": "#5a9ba5", "streak": 15, "scans": 27},
+        {"rank": 3,  "name": "Priya Rathod",    "initials": "PR", "dept": "MPSTME",       "coins": 4820, "color": "#4a9b6d", "is_user": True, "streak": 12, "scans": 23},
+        {"rank": 4,  "name": "Rohan Mehta",     "initials": "RM", "dept": "Architecture",  "coins": 4100, "color": "#8b7ea8", "streak": 9,  "scans": 19},
+        {"rank": 5,  "name": "Kavya Singh",     "initials": "KS", "dept": "Law",           "coins": 3850, "color": "#c17a5e", "streak": 14, "scans": 16},
+        {"rank": 6,  "name": "Ishan Patel",     "initials": "IP", "dept": "Pharmacy",      "coins": 3600, "color": "#7aa87a", "streak": 7,  "scans": 14},
+        {"rank": 7,  "name": "Sneha Sharma",    "initials": "SS", "dept": "Science",       "coins": 3420, "color": "#8a8d87", "streak": 11, "scans": 12},
+        {"rank": 8,  "name": "Aman Jain",       "initials": "AJ", "dept": "Commerce",      "coins": 3100, "color": "#8a8d87", "streak": 6,  "scans": 10},
+        {"rank": 9,  "name": "Tanya Gupta",     "initials": "TG", "dept": "MPSTME",       "coins": 2950, "color": "#8a8d87", "streak": 8,  "scans": 9},
+        {"rank": 10, "name": "Varun Kumar",     "initials": "VK", "dept": "MBA",           "coins": 2880, "color": "#8a8d87", "streak": 5,  "scans": 7},
+        {"rank": 11, "name": "Diya Nair",       "initials": "DN", "dept": "Science",       "coins": 2640, "color": "#8a8d87", "streak": 3,  "scans": 6},
+        {"rank": 12, "name": "Kabir Deshmukh",  "initials": "KD", "dept": "Architecture",  "coins": 2510, "color": "#8a8d87", "streak": 4,  "scans": 5},
+        {"rank": 13, "name": "Ananya Rao",      "initials": "AR", "dept": "Law",           "coins": 2300, "color": "#8a8d87", "streak": 2,  "scans": 4},
+        {"rank": 14, "name": "Sahil Verma",     "initials": "SV", "dept": "Pharmacy",      "coins": 2100, "color": "#8a8d87", "streak": 1,  "scans": 3},
+        {"rank": 15, "name": "Meera Joshi",     "initials": "MJ", "dept": "Commerce",      "coins": 1950, "color": "#8a8d87", "streak": 2,  "scans": 2},
     ]
+    MEM_STUDENT_LEADERBOARD = leaderboard
 
-    MEM_STUDENT_CHALLENGES = [
-        {"id": "c1", "title": "Dark Hour Friday", "desc": "Power down non-essentials for 1hr.", "reward": 200, "progress": 60, "deadline": "Fri 5PM", "timer": "3 days left", "color": "coral", "category": "Campus-Wide"},
-        {"id": "c2", "title": "AI Scanner Pro", "desc": "Submit 5 verified waste scans using AI.", "reward": 150, "progress": 60, "deadline": "Weekly", "timer": "4 days left", "color": "accent", "category": "Weekly", "progress_text": "3/5 scans"},
-        {"id": "c3", "title": "Streak Keeper", "desc": "Login 7 days straight to earn bonus.", "reward": 100, "progress": 71, "deadline": "Daily", "timer": "5hrs left", "color": "cyan", "category": "Daily", "progress_text": "5/7 days"},
-        {"id": "c4", "title": "Lab Watchdog", "desc": "Report 3 lab waste incidents manually or via Scanner.", "reward": 250, "progress": 33, "deadline": "Weekly", "timer": "4 days left", "color": "violet", "category": "Weekly", "progress_text": "1/3 completed"},
-        {"id": "c5", "title": "Solar Peak Chaser", "desc": "Open app during 5 solar peak periods.", "reward": 120, "progress": 40, "deadline": "Daily", "timer": "Today", "color": "yellow", "category": "Daily", "progress_text": "2/5 completed"},
-        {"id": "c6", "title": "Dept Energy Battle", "desc": "Help MPSTME reach 500kWh savings before month-end.", "reward": 300, "progress": 68, "deadline": "Monthly", "timer": "19 days left", "color": "coral", "category": "Monthly", "progress_text": "340/500 kWh"},
+    # ── 2. Challenges (10 items) ────────────────────────
+    challenges = [
+        {"id": "c1",  "title": "Dark Hour Friday",     "desc": "Power down non-essentials for 1hr.",                  "reward": 200, "progress": 60, "deadline": "Fri 5PM",  "timer": "3 days left",  "color": "coral",   "category": "Campus-Wide"},
+        {"id": "c2",  "title": "AI Scanner Pro",        "desc": "Submit 5 verified waste scans using AI.",             "reward": 150, "progress": 60, "deadline": "Weekly",   "timer": "4 days left",  "color": "accent",  "category": "Weekly",  "progress_text": "3/5 scans"},
+        {"id": "c3",  "title": "Streak Keeper",         "desc": "Login 7 days straight to earn bonus.",                "reward": 100, "progress": 71, "deadline": "Daily",    "timer": "5hrs left",    "color": "cyan",    "category": "Daily",   "progress_text": "5/7 days"},
+        {"id": "c4",  "title": "Lab Watchdog",          "desc": "Report 3 lab waste incidents via Scanner.",           "reward": 250, "progress": 33, "deadline": "Weekly",   "timer": "4 days left",  "color": "violet",  "category": "Weekly",  "progress_text": "1/3 completed"},
+        {"id": "c5",  "title": "Solar Peak Chaser",     "desc": "Open app during 5 solar peak periods.",               "reward": 120, "progress": 40, "deadline": "Daily",    "timer": "Today",        "color": "yellow",  "category": "Daily",   "progress_text": "2/5 completed"},
+        {"id": "c6",  "title": "Dept Energy Battle",    "desc": "Help MPSTME reach 500kWh savings before month-end.",  "reward": 300, "progress": 68, "deadline": "Monthly",  "timer": "19 days left", "color": "coral",   "category": "Monthly", "progress_text": "340/500 kWh"},
+        {"id": "c7",  "title": "Zero-Waste Wednesday",  "desc": "No single-use plastics on campus for a day.",         "reward": 180, "progress": 0,  "deadline": "Wed 11PM", "timer": "5 days left",  "color": "accent",  "category": "Campus-Wide"},
+        {"id": "c8",  "title": "EV Charger Scheduler",  "desc": "Schedule 3 EV charges during solar surplus.",         "reward": 160, "progress": 33, "deadline": "Weekly",   "timer": "3 days left",  "color": "cyan",    "category": "Weekly",  "progress_text": "1/3 done"},
+        {"id": "c9",  "title": "Report Water Leak",     "desc": "Find and report a water leakage on campus.",          "reward": 200, "progress": 0,  "deadline": "Anytime",  "timer": "Ongoing",      "color": "violet",  "category": "Special"},
+        {"id": "c10", "title": "Green Commuter",        "desc": "Log 5 days of carpool / public transport use.",       "reward": 220, "progress": 20, "deadline": "Monthly",  "timer": "24 days left", "color": "yellow",  "category": "Monthly", "progress_text": "1/5 days"},
     ]
+    MEM_STUDENT_CHALLENGES = challenges
 
-    MEM_STUDENT_FEED = [
-        {"id": "f1", "user": "Arjun Shah", "initials": "AS", "dept": "MBA", "time": "5min ago", "content": "Caught empty classroom lights in Block B — reported via AI Scanner! 💡", "coins": 75, "likes": 0, "color": "#5a9ba5"},
-        {"id": "f2", "user": "Neha Kulkarni", "initials": "NK", "dept": "MPSTME", "time": "12min ago", "content": "Lab AC running 2hrs with zero occupancy. Facilities called, resolved in 10 min! ❄️", "coins": 150, "likes": 4, "color": "#b8a042"},
-        {"id": "f3", "user": "Campus System", "initials": "C0", "dept": "Automated", "time": "18min ago", "content": "Solar panels generating 124% of current demand. Surplus being routed to EV Bay 3.", "coins": 0, "likes": 0, "color": "#4a9b6d", "is_system": True},
-        {"id": "f4", "user": "Priya Rathod", "initials": "PR", "dept": "MPSTME", "time": "1hr ago", "content": "Completed Streak Warrior challenge — 10 day streak! 🔥", "coins": 100, "likes": 12, "color": "#4a9b6d", "is_user": True},
-        {"id": "f5", "user": "Rohan Mehta", "initials": "RM", "dept": "Architecture", "time": "2hrs ago", "content": "5th AI scan this week → unlocked Scanner Pro badge! 📸", "coins": 200, "likes": 7, "color": "#8b7ea8"},
+    # ── 3. Tasks (25 tasks — daily, weekly, campus-wide) ─
+    tasks = [
+        # Daily tasks
+        {"id": "t1",  "title": "Morning Solar Check",      "desc": "Open the app and view solar dashboard between 8-10 AM.",     "reward": 30,  "category": "daily",   "icon": "☀️", "completed": False, "repeatable": True},
+        {"id": "t2",  "title": "Report Idle Lights",        "desc": "Scan and report any unoccupied room with lights on.",        "reward": 50,  "category": "daily",   "icon": "💡", "completed": False, "repeatable": True},
+        {"id": "t3",  "title": "AC Efficiency Check",       "desc": "Check if any classroom AC is running below 24°C.",           "reward": 40,  "category": "daily",   "icon": "❄️", "completed": False, "repeatable": True},
+        {"id": "t4",  "title": "Campus Walk Scan",          "desc": "Do a 10-min campus walk and submit 1 AI scan.",              "reward": 60,  "category": "daily",   "icon": "🚶", "completed": True,  "repeatable": True},
+        {"id": "t5",  "title": "Share Green Tip",           "desc": "Post an energy-saving tip on the campus feed.",              "reward": 25,  "category": "daily",   "icon": "📢", "completed": False, "repeatable": True},
+        {"id": "t6",  "title": "Peak Hour Awareness",       "desc": "Avoid using high-power appliances between 2-4 PM.",         "reward": 35,  "category": "daily",   "icon": "⚡", "completed": False, "repeatable": True},
+        {"id": "t7",  "title": "Refill, Don't Rebuy",       "desc": "Use a reusable water bottle today — log it here.",           "reward": 20,  "category": "daily",   "icon": "🍶", "completed": True,  "repeatable": True},
+        # Weekly tasks
+        {"id": "t8",  "title": "Weekly Energy Report",      "desc": "View your full weekly analytics page.",                      "reward": 80,  "category": "weekly",  "icon": "📊", "completed": False, "repeatable": True},
+        {"id": "t9",  "title": "5 Quick Reports",           "desc": "Submit 5 quick waste reports this week.",                    "reward": 100, "category": "weekly",  "icon": "📋", "completed": False, "repeatable": True,  "progress": 2, "target": 5},
+        {"id": "t10", "title": "Join a Challenge",          "desc": "Participate in at least 1 active challenge.",                "reward": 60,  "category": "weekly",  "icon": "🎯", "completed": True,  "repeatable": True},
+        {"id": "t11", "title": "Refer a Friend",            "desc": "Invite a classmate to join CampusZero.",                     "reward": 150, "category": "weekly",  "icon": "👥", "completed": False, "repeatable": True},
+        {"id": "t12", "title": "Call Center Hero",          "desc": "Accept and complete 2 AI voice agent calls.",                "reward": 120, "category": "weekly",  "icon": "📞", "completed": False, "repeatable": True,  "progress": 1, "target": 2},
+        {"id": "t13", "title": "Lab Energy Audit",          "desc": "Visit 2 labs and scan for energy waste.",                    "reward": 130, "category": "weekly",  "icon": "🧪", "completed": False, "repeatable": True,  "progress": 0, "target": 2},
+        {"id": "t14", "title": "Leaderboard Climb",         "desc": "Move up at least 1 rank on the leaderboard.",                "reward": 100, "category": "weekly",  "icon": "📈", "completed": False, "repeatable": True},
+        # Campus-wide tasks
+        {"id": "t15", "title": "Plant a Sapling",           "desc": "Participate in the campus tree planting drive.",              "reward": 200, "category": "campus",  "icon": "🌱", "completed": False, "repeatable": False},
+        {"id": "t16", "title": "E-Waste Collection",        "desc": "Drop off old electronics at the e-waste bin.",               "reward": 180, "category": "campus",  "icon": "♻️", "completed": False, "repeatable": False},
+        {"id": "t17", "title": "Solar Panel Tour",          "desc": "Attend the rooftop solar tour this Saturday.",               "reward": 250, "category": "campus",  "icon": "🔆", "completed": False, "repeatable": False},
+        {"id": "t18", "title": "Green Ideas Board",         "desc": "Submit a sustainability idea to the campus board.",           "reward": 150, "category": "campus",  "icon": "💡", "completed": False, "repeatable": False},
+        {"id": "t19", "title": "Zero-Carbon Commute Day",   "desc": "Walk, cycle, or carpool to campus for one day.",             "reward": 100, "category": "campus",  "icon": "🚲", "completed": True,  "repeatable": False},
+        {"id": "t20", "title": "Water Audit Volunteer",     "desc": "Help the facilities team audit water usage.",                "reward": 300, "category": "campus",  "icon": "💧", "completed": False, "repeatable": False},
+        {"id": "t21", "title": "Green Mentor Session",      "desc": "Mentor a junior student on energy savings.",                 "reward": 200, "category": "campus",  "icon": "🎓", "completed": False, "repeatable": False},
+        {"id": "t22", "title": "Classroom Lights-Off Patrol","desc": "Check 5 classrooms after 6 PM and turn off lights.",        "reward": 120, "category": "daily",   "icon": "🔦", "completed": False, "repeatable": True},
+        {"id": "t23", "title": "Smart Plug Setup",          "desc": "Help configure IoT smart plugs in your hostel.",             "reward": 180, "category": "campus",  "icon": "🔌", "completed": False, "repeatable": False},
+        {"id": "t24", "title": "Feedback Fridays",          "desc": "Submit sustainability feedback every Friday.",               "reward": 40,  "category": "weekly",  "icon": "✍️", "completed": False, "repeatable": True},
+        {"id": "t25", "title": "Carbon Footprint Quiz",     "desc": "Complete the weekly carbon literacy quiz.",                  "reward": 70,  "category": "weekly",  "icon": "🧠", "completed": False, "repeatable": True},
     ]
+    MEM_STUDENT_TASKS = tasks
 
-    # Default student profile
-    MEM_STUDENT_PROFILES["default"] = {
+    # ── 4. Feed posts (10) ───────────────────────────────
+    feed = [
+        {"id": "f1",  "user": "Arjun Shah",     "initials": "AS", "dept": "MBA",          "time": "5min ago",  "content": "Caught empty classroom lights in Block B — reported via AI Scanner! 💡",                    "coins": 75,  "likes": 3,  "color": "#5a9ba5"},
+        {"id": "f2",  "user": "Neha Kulkarni",  "initials": "NK", "dept": "MPSTME",       "time": "12min ago", "content": "Lab AC running 2hrs with zero occupancy. Facilities called, resolved in 10 min! ❄️",          "coins": 150, "likes": 8,  "color": "#b8a042"},
+        {"id": "f3",  "user": "Campus System",  "initials": "C0", "dept": "Automated",    "time": "18min ago", "content": "Solar panels generating 124% of current demand. Surplus being routed to EV Bay 3.",           "coins": 0,   "likes": 2,  "color": "#4a9b6d", "is_system": True},
+        {"id": "f4",  "user": "Priya Rathod",   "initials": "PR", "dept": "MPSTME",       "time": "1hr ago",   "content": "Completed Streak Warrior challenge — 10 day streak! 🔥",                                      "coins": 100, "likes": 12, "color": "#4a9b6d", "is_user": True},
+        {"id": "f5",  "user": "Rohan Mehta",    "initials": "RM", "dept": "Architecture",  "time": "2hrs ago",  "content": "5th AI scan this week → unlocked Scanner Pro badge! 📸",                                      "coins": 200, "likes": 7,  "color": "#8b7ea8"},
+        {"id": "f6",  "user": "Kavya Singh",    "initials": "KS", "dept": "Law",           "time": "3hrs ago",  "content": "Planted 3 saplings during today's Green Drive. Small steps, big impact! 🌳",                  "coins": 200, "likes": 15, "color": "#c17a5e"},
+        {"id": "f7",  "user": "Ishan Patel",    "initials": "IP", "dept": "Pharmacy",      "time": "4hrs ago",  "content": "Just redeemed my Starbucks voucher with GreenCoins. This system is amazing ☕",                "coins": 0,   "likes": 9,  "color": "#7aa87a"},
+        {"id": "f8",  "user": "Campus System",  "initials": "C0", "dept": "Automated",    "time": "5hrs ago",  "content": "Daily campus energy usage is 11% below target. Keep it up NMIMS! 🎉",                         "coins": 0,   "likes": 22, "color": "#4a9b6d", "is_system": True},
+        {"id": "f9",  "user": "Sneha Sharma",   "initials": "SS", "dept": "Science",       "time": "6hrs ago",  "content": "Reported water leak near Block A fountain. Fixed within 30 mins! 💧",                         "coins": 200, "likes": 11, "color": "#8a8d87"},
+        {"id": "f10", "user": "Aman Jain",      "initials": "AJ", "dept": "Commerce",      "time": "Yesterday", "content": "E-waste collection drive was a hit! We collected 47 kg of old electronics ♻️",                 "coins": 180, "likes": 18, "color": "#8a8d87"},
+    ]
+    MEM_STUDENT_FEED = feed
+
+    # ── 5. Badges ────────────────────────────────────────
+    badges = {
+        "earned": [
+            {"emoji": "🌍", "name": "Eco Champion",   "desc": "Reach top 10 on campus leaderboard.",     "earned_date": "2025-01-15"},
+            {"emoji": "🔦", "name": "Light Watcher",  "desc": "Reported 10 unneeded lights.",             "earned_date": "2025-01-20"},
+            {"emoji": "❄️", "name": "AC Guardian",    "desc": "Reported empty running ACs.",              "earned_date": "2025-02-01"},
+            {"emoji": "🔥", "name": "Streak Warrior", "desc": "Maintained a 10-day streak.",              "earned_date": "2025-02-10"},
+            {"emoji": "🏆", "name": "Week Champion",  "desc": "Scored highest in MPSTME a week.",         "earned_date": "2025-02-14"},
+            {"emoji": "📸", "name": "Scanner Pro",    "desc": "Completed 20 verified scans.",             "earned_date": "2025-03-01"},
+            {"emoji": "☀️", "name": "Solar Star",     "desc": "Checked app during solar peaks.",          "earned_date": "2025-03-05"},
+            {"emoji": "🧪", "name": "Lab Sentinel",   "desc": "Conserved lab energy.",                    "earned_date": "2025-03-10"},
+            {"emoji": "🌱", "name": "First Step",     "desc": "Earned your first 100 coins.",             "earned_date": "2024-12-01"},
+        ],
+        "locked": [
+            {"emoji": "🔒", "name": "Water Warden",     "desc": "Report 5 water leakages.",               "requirement": "0/5 reports"},
+            {"emoji": "🔒", "name": "Energy Ninja",      "desc": "Complete 50 green actions.",             "requirement": "23/50 actions"},
+            {"emoji": "🔒", "name": "Carbon Crusher",    "desc": "Save 500kg of CO₂.",                    "requirement": "142/500 kg"},
+            {"emoji": "🔒", "name": "Green Mentor",      "desc": "Refer 3 students.",                     "requirement": "0/3 referrals"},
+            {"emoji": "🔒", "name": "Challenge Master",  "desc": "Complete 20 challenges.",                "requirement": "4/20 challenges"},
+            {"emoji": "🔒", "name": "Apex Guardian",     "desc": "Reach Rank #1 overall.",                 "requirement": "Current: #3"},
+            {"emoji": "🔒", "name": "Tree Hugger",       "desc": "Plant 10 saplings on campus.",           "requirement": "3/10 planted"},
+            {"emoji": "🔒", "name": "Night Owl Auditor", "desc": "Report 5 after-hours energy wastes.",    "requirement": "1/5 reports"},
+        ],
+    }
+    MEM_STUDENT_BADGES = badges
+
+    # ── 6. Shop rewards (15 items) ───────────────────────
+    shop = [
+        {"id": "s1",  "emoji": "🍽️", "name": "Canteen 20% Off",       "desc": "Valid at Main Canteen today",          "price": 50,   "category": "food",       "stock": 100},
+        {"id": "s2",  "emoji": "🖨️", "name": "50 Print Pages",        "desc": "Added to Library ID instantly",         "price": 200,  "category": "academic",   "stock": 50},
+        {"id": "s3",  "emoji": "🛏️", "name": "Priority Hostel",       "desc": "Extra points for room choice",          "price": 500,  "category": "campus",     "stock": 10},
+        {"id": "s4",  "emoji": "📱", "name": "Zomato ₹100",           "desc": "Gift voucher via email",                "price": 300,  "category": "food",       "stock": 30},
+        {"id": "s5",  "emoji": "🎟️", "name": "Event Priority",        "desc": "VIP seating at next event",             "price": 250,  "category": "campus",     "stock": 20},
+        {"id": "s6",  "emoji": "📚", "name": "Elective Priority",     "desc": "Get first pick for tech electives",     "price": 800,  "category": "academic",   "stock": 0, "out_of_stock": True},
+        {"id": "s7",  "emoji": "🎬", "name": "BookMyShow ₹150",       "desc": "Digital movie voucher",                 "price": 400,  "category": "entertainment", "stock": 25},
+        {"id": "s8",  "emoji": "☕", "name": "Starbucks ₹200",        "desc": "Coffee on CampusZero",                  "price": 350,  "category": "food",       "stock": 40},
+        {"id": "s9",  "emoji": "📶", "name": "WiFi +100MB",           "desc": "Boost your daily quota",                "price": 150,  "category": "campus",     "stock": 200},
+        {"id": "s10", "emoji": "🎧", "name": "Spotify 1-Week",        "desc": "Premium access for 7 days",             "price": 500,  "category": "entertainment", "stock": 15},
+        {"id": "s11", "emoji": "🏋️", "name": "Gym Day Pass",          "desc": "Free gym access for a day",             "price": 100,  "category": "campus",     "stock": 50},
+        {"id": "s12", "emoji": "🎽", "name": "CampusZero T-Shirt",    "desc": "Exclusive green campus merch",           "price": 600,  "category": "merch",      "stock": 30},
+        {"id": "s13", "emoji": "🌳", "name": "Plant-a-Tree Certificate","desc": "A tree planted in your name",          "price": 250,  "category": "eco",        "stock": 999},
+        {"id": "s14", "emoji": "🎮", "name": "Gaming Zone 1hr",       "desc": "Free gaming session at rec room",        "price": 200,  "category": "entertainment", "stock": 20},
+        {"id": "s15", "emoji": "💻", "name": "Co-Working Space Pass", "desc": "Priority seat for 1 week",              "price": 450,  "category": "academic",   "stock": 10},
+    ]
+    MEM_STUDENT_SHOP = shop
+
+    # ── 7. Events (6) ───────────────────────────────────
+    events = [
+        {"id": "e1", "icon": "🌱", "title": "Energy Hackathon",        "time": "Friday · 10 AM",         "location": "MPSTME Auditorium",  "desc": "48-hr hackathon on green tech solutions",        "reward": 500},
+        {"id": "e2", "icon": "🗣️", "title": "Green Panel Talk",        "time": "Next Mon · 2 PM",        "location": "Seminar Hall B",     "desc": "Industry experts discuss net-zero campuses",      "reward": 100},
+        {"id": "e3", "icon": "♻️", "title": "E-Waste Drive",           "time": "Next Wed · All Day",      "location": "Main Gate",          "desc": "Collect & recycle old electronics",               "reward": 180},
+        {"id": "e4", "icon": "🔬", "title": "Green Lab Workshop",      "time": "Next Thu · 11 AM",       "location": "Chem Lab 204",       "desc": "Learn energy-efficient lab practices",            "reward": 150},
+        {"id": "e5", "icon": "🏃", "title": "Campus Green Run 5K",     "time": "Next Sat · 6 AM",        "location": "Sports Ground",      "desc": "Run for sustainability awareness",                "reward": 200},
+        {"id": "e6", "icon": "🎤", "title": "Student TED Talk: Net-Zero","time": "In 2 Weeks · 5 PM",    "location": "NMIMS Amphitheatre", "desc": "Student speakers on campus sustainability",       "reward": 120},
+    ]
+    MEM_STUDENT_EVENTS = events
+
+    # ── 8. Notifications (8) ────────────────────────────
+    notifications = [
+        {"id": "n1", "icon": "🔥", "title": "Streak at Risk!",        "desc": "Log a green action in 6 hours.",         "time": "2hrs ago",       "unread": True},
+        {"id": "n2", "icon": "🏆", "title": "You entered Top 3!",     "desc": "Ranked #3 on campus leaderboard.",       "time": "4hrs ago",       "unread": True},
+        {"id": "n3", "icon": "📞", "title": "Missed Call",            "desc": "CampusZero AI called about Lab 204.",     "time": "Today 10:42",    "unread": True},
+        {"id": "n4", "icon": "💡", "title": "Waste Near You",         "desc": "Report Classroom B-204 lights.",          "time": "Yesterday",      "unread": False},
+        {"id": "n5", "icon": "☀️", "title": "Solar Peak Alert",       "desc": "Peak generation in 30 mins.",            "time": "Yesterday",      "unread": False},
+        {"id": "n6", "icon": "🎯", "title": "New Challenge!",         "desc": "Zero-Waste Wednesday just launched.",     "time": "Yesterday",      "unread": False},
+        {"id": "n7", "icon": "🪙", "title": "Coins Earned +150",      "desc": "Lab waste scan verified by facilities.",  "time": "2 days ago",     "unread": False},
+        {"id": "n8", "icon": "🎖️", "title": "Badge Unlocked!",       "desc": "You earned the Lab Sentinel badge.",      "time": "3 days ago",     "unread": False},
+    ]
+    MEM_STUDENT_NOTIFICATIONS = notifications
+
+    # ── 9. Transactions (12) ────────────────────────────
+    transactions = [
+        {"icon": "📸", "title": "AI Scanner — Lab Waste Report",  "sub": "Chemistry Lab",   "amount": 150, "type": "earn",  "time": "Today",       "student_id": "default", "created_at": datetime.now()},
+        {"icon": "🎯", "title": "Challenge Complete — Streak Keeper","sub": "7-day streak",  "amount": 100, "type": "earn",  "time": "Today",       "student_id": "default", "created_at": datetime.now()},
+        {"icon": "✅", "title": "Task: Campus Walk Scan",          "sub": "Daily task",      "amount": 60,  "type": "earn",  "time": "Today",       "student_id": "default", "created_at": datetime.now()},
+        {"icon": "🛍️", "title": "Redeemed: Canteen 20% Off",      "sub": "Used at lunch",   "amount": 50,  "type": "spend", "time": "Yesterday",   "student_id": "default", "created_at": datetime.now()},
+        {"icon": "📞", "title": "Call Report — Lab AC Empty",      "sub": "Verified by team","amount": 75,  "type": "earn",  "time": "Yesterday",   "student_id": "default", "created_at": datetime.now()},
+        {"icon": "🔥", "title": "Streak Bonus — 10 Days",         "sub": "Milestone reward","amount": 200, "type": "earn",  "time": "2 days ago",  "student_id": "default", "created_at": datetime.now()},
+        {"icon": "🛍️", "title": "Redeemed: 50 Print Pages",       "sub": "Library credited","amount": 200, "type": "spend", "time": "3 days ago",  "student_id": "default", "created_at": datetime.now()},
+        {"icon": "🌱", "title": "Task: Zero-Carbon Commute",      "sub": "Campus task",     "amount": 100, "type": "earn",  "time": "3 days ago",  "student_id": "default", "created_at": datetime.now()},
+        {"icon": "☀️", "title": "Solar Spin Win",                 "sub": "Lucky spin",      "amount": 75,  "type": "earn",  "time": "4 days ago",  "student_id": "default", "created_at": datetime.now()},
+        {"icon": "🛍️", "title": "Redeemed: WiFi +100MB",          "sub": "Applied to ID",   "amount": 150, "type": "spend", "time": "5 days ago",  "student_id": "default", "created_at": datetime.now()},
+        {"icon": "🧪", "title": "Lab Energy Audit",               "sub": "Weekly task",     "amount": 130, "type": "earn",  "time": "5 days ago",  "student_id": "default", "created_at": datetime.now()},
+        {"icon": "🛍️", "title": "Redeemed: Gym Day Pass",         "sub": "Today only",      "amount": 100, "type": "spend", "time": "1 week ago",  "student_id": "default", "created_at": datetime.now()},
+    ]
+    MEM_STUDENT_TRANSACTIONS = transactions
+
+    # ── 10. Scan History (6) ────────────────────────────
+    scan_history = [
+        {"id": "sc1", "type": "camera",   "severity": "high",   "reward": 150, "location": "Chemistry Lab 204",  "time": "Today 09:32",      "title": "Unoccupied AC & Lights", "co2_kg": 2.1},
+        {"id": "sc2", "type": "camera",   "severity": "medium", "reward": 100, "location": "Block B Room 301",   "time": "Yesterday 14:15",  "title": "Idle Projector Running", "co2_kg": 0.8},
+        {"id": "sc3", "type": "camera",   "severity": "low",    "reward": 50,  "location": "Library Level 2",    "time": "Yesterday 11:20",  "title": "Minor Light Waste",      "co2_kg": 0.3},
+        {"id": "sc4", "type": "quick",    "severity": "medium", "reward": 50,  "location": "Hostel D Corridor",  "time": "2 days ago",       "title": "Hallway Lights On",      "co2_kg": 0.5},
+        {"id": "sc5", "type": "camera",   "severity": "high",   "reward": 150, "location": "MPSTME Lab 102",     "time": "3 days ago",       "title": "AC Running Empty Lab",   "co2_kg": 1.9},
+        {"id": "sc6", "type": "camera",   "severity": "medium", "reward": 100, "location": "Admin Block Floor 2","time": "4 days ago",       "title": "Print Room Left On",     "co2_kg": 0.6},
+    ]
+    MEM_STUDENT_SCAN_HISTORY = scan_history
+
+    # ── 11. Redemption History (5) ───────────────────────
+    redemptions = [
+        {"id": "r1", "item": "Canteen 20% Off",  "price": 50,  "time": "Yesterday",  "status": "used",    "code": "NMIMS-C0-4821"},
+        {"id": "r2", "item": "50 Print Pages",    "price": 200, "time": "3 days ago", "status": "active",  "code": "NMIMS-C0-4822"},
+        {"id": "r3", "item": "WiFi +100MB",       "price": 150, "time": "5 days ago", "status": "used",    "code": "NMIMS-C0-4823"},
+        {"id": "r4", "item": "Gym Day Pass",      "price": 100, "time": "1 week ago", "status": "expired", "code": "NMIMS-C0-4824"},
+        {"id": "r5", "item": "Starbucks ₹200",    "price": 350, "time": "2 weeks ago","status": "used",    "code": "NMIMS-C0-4825"},
+    ]
+    MEM_STUDENT_REDEMPTIONS = redemptions
+
+    # ── 12. Analytics ────────────────────────────────────
+    analytics = {
+        "weekly_coins": [320, 480, 210, 650, 890, 540, 760],
+        "monthly_coins": [1200, 1580, 2100, 1890, 2400, 2100, 1700, 2300, 2800, 2500, 2900, 3100],
+        "radar": [0.85, 0.72, 0.90, 0.68, 0.55, 0.78],
+        "radar_labels": ["Scanning", "Challenges", "Streaks", "Reporting", "Social", "Actions"],
+        "best_day_coins": 890,
+        "longest_streak": 23,
+        "most_scans_day": 8,
+        "most_co2_saved": 18.4,
+        "tasks_completed": 14,
+        "tasks_total": 25,
+        "challenges_won": 4,
+        "total_green_tokens": 12400,
+        "action_breakdown": [
+            {"label": "Scanning",   "pct": 32, "color": "accent"},
+            {"label": "Tasks",      "pct": 24, "color": "yellow"},
+            {"label": "Challenges", "pct": 20, "color": "cyan"},
+            {"label": "Calls",      "pct": 12, "color": "coral"},
+            {"label": "Social",     "pct": 8,  "color": "violet"},
+            {"label": "Other",      "pct": 4,  "color": "fog"},
+        ],
+        "goals": [
+            {"title": "Reach Rank #1",   "pct": 67, "sub": "3 positions to go",  "color": "accent"},
+            {"title": "Save 200kg CO₂",  "pct": 71, "sub": "142/200 kg",         "color": "cyan"},
+            {"title": "50 Total Scans",  "pct": 46, "sub": "23/50 scans",        "color": "yellow"},
+            {"title": "25-Day Streak",   "pct": 48, "sub": "12/25 days",         "color": "coral"},
+            {"title": "Complete 25 Tasks","pct": 56, "sub": "14/25 tasks",        "color": "violet"},
+        ],
+    }
+    MEM_STUDENT_ANALYTICS = analytics
+
+    # ── 13. Default student profile ──────────────────────
+    default_profile = {
+        "student_id": "default",
         "name": "Priya Rathod",
         "initials": "PR",
         "email": "priya.rathod@nmims.edu",
@@ -1665,6 +1884,7 @@ def _init_student_data():
         "xp": 8240,
         "xp_next": 10000,
         "coins": 4820,
+        "green_tokens": 12400,
         "total_earned": 12400,
         "total_spent": 7580,
         "carbon_score": 87,
@@ -1677,8 +1897,11 @@ def _init_student_data():
         "total_scan_coins": 1490,
         "validated_scans": 18,
         "scan_co2_kg": 31,
+        "tasks_completed": 14,
+        "tasks_total": 25,
+        "challenges_won": 4,
         "badges_earned": 9,
-        "badges_total": 15,
+        "badges_total": 17,
         "preferences": {
             "push_notifications": True,
             "ai_call_alerts": True,
@@ -1686,33 +1909,131 @@ def _init_student_data():
             "solar_peak_alerts": True,
             "challenge_updates": False,
             "campus_feed_emails": True,
-        }
+            "task_reminders": True,
+            "weekly_report_email": True,
+        },
     }
+    MEM_STUDENT_PROFILES["default"] = default_profile
 
-_init_student_data()
+    # ── Seed into MongoDB if available ───────────────────
+    if USE_MONGO:
+        try:
+            # Only seed if profiles collection is empty
+            if mongo_db["student_profiles"].count_documents({}) == 0:
+                print("[Student Seed] Seeding student data into MongoDB …")
+                mongo_db["student_profiles"].insert_one(default_profile.copy())
+
+                for doc in leaderboard:
+                    mongo_db["student_leaderboard"].insert_one(doc.copy())
+
+                for doc in challenges:
+                    mongo_db["student_challenges"].insert_one(doc.copy())
+
+                for doc in tasks:
+                    mongo_db["student_tasks"].insert_one(doc.copy())
+
+                for doc in feed:
+                    mongo_db["student_feed"].insert_one({**doc, "created_at": datetime.now()})
+
+                mongo_db["student_badges"].insert_one(badges.copy())
+
+                for doc in shop:
+                    mongo_db["student_shop"].insert_one(doc.copy())
+
+                for doc in events:
+                    mongo_db["student_events"].insert_one(doc.copy())
+
+                for doc in notifications:
+                    mongo_db["student_notifications"].insert_one(doc.copy())
+
+                for doc in transactions:
+                    mongo_db["student_transactions"].insert_one(doc.copy())
+
+                for doc in scan_history:
+                    mongo_db["student_scan_history"].insert_one(doc.copy())
+
+                for doc in redemptions:
+                    mongo_db["student_redemptions"].insert_one(doc.copy())
+
+                mongo_db["student_analytics"].insert_one({"student_id": "default", **analytics})
+
+                print("[Student Seed] ✓ All student collections seeded.")
+            else:
+                print("[Student Seed] Collections already populated — skipping seed.")
+        except Exception as exc:
+            print(f"[Student Seed] MongoDB seed failed ({exc}), using in-memory.")
+
+    print(f"[Student Portal] Loaded {len(tasks)} tasks, {len(shop)} shop items, {len(challenges)} challenges")
 
 
+# Run seed on import
+_seed_student_data()
+
+
+# ── Helpers ──────────────────────────────────────────────
 def _get_student_profile(student_id="default"):
     """Get student profile from Mongo or memory."""
     if USE_MONGO:
-        profile = mongo_db["student_profiles"].find_one({"student_id": student_id}, {"_id": 0})
-        if profile:
-            return profile
+        try:
+            profile = mongo_db["student_profiles"].find_one({"student_id": student_id}, {"_id": 0})
+            if profile:
+                return profile
+        except Exception:
+            pass
     return MEM_STUDENT_PROFILES.get(student_id, MEM_STUDENT_PROFILES.get("default"))
 
 
 def _update_student_profile(student_id, updates):
-    """Update student profile in Mongo or memory."""
+    """Update student profile in both Mongo and memory."""
     if USE_MONGO:
-        mongo_db["student_profiles"].update_one(
-            {"student_id": student_id}, {"$set": updates}, upsert=True
-        )
+        try:
+            mongo_db["student_profiles"].update_one(
+                {"student_id": student_id}, {"$set": updates}, upsert=True
+            )
+        except Exception:
+            pass
     with _student_data_lock:
         if student_id not in MEM_STUDENT_PROFILES:
             MEM_STUDENT_PROFILES[student_id] = dict(MEM_STUDENT_PROFILES.get("default", {}))
         MEM_STUDENT_PROFILES[student_id].update(updates)
 
 
+def _sync_leaderboard_coins(new_balance):
+    """Keep in-memory leaderboard in sync with user coins."""
+    with _student_data_lock:
+        for s in MEM_STUDENT_LEADERBOARD:
+            if s.get("is_user"):
+                s["coins"] = new_balance
+                break
+    if USE_MONGO:
+        try:
+            mongo_db["student_leaderboard"].update_one(
+                {"is_user": True}, {"$set": {"coins": new_balance}}
+            )
+        except Exception:
+            pass
+
+
+def _record_transaction(student_id, tx_type, amount, title, sub="", icon="🪙"):
+    """Write a transaction record to MongoDB and in-memory."""
+    tx = {
+        "student_id": student_id, "icon": icon, "title": title,
+        "sub": sub, "amount": amount, "type": tx_type,
+        "time": "Just now", "created_at": datetime.now(),
+    }
+    MEM_STUDENT_TRANSACTIONS.insert(0, tx)
+    if USE_MONGO:
+        try:
+            mongo_db["student_transactions"].insert_one(tx.copy())
+        except Exception:
+            pass
+
+
+# ══════════════════════════════════════════════════════════
+#  STUDENT API ENDPOINTS
+# ══════════════════════════════════════════════════════════
+
+# ── Profile ──────────────────────────────────────────────
 @app.route("/api/student/profile", methods=["GET"])
 def student_profile():
     sid = request.args.get("id", "default")
@@ -1728,17 +2049,20 @@ def update_student_profile():
     return jsonify({"ok": True})
 
 
+# ── Dashboard ────────────────────────────────────────────
 @app.route("/api/student/dashboard", methods=["GET"])
 def student_dashboard_data():
     """Aggregate data for the student dashboard page."""
     sid = request.args.get("id", "default")
     profile = _get_student_profile(sid)
 
-    # Get live campus data from energy simulator
     now = datetime.now()
     today_logs = _get_today_logs(now)
     total_solar = sum(lg.get("Solar_Power_Generated_kW", 0) for lg in today_logs)
     solar_kwh = round((total_solar * SIMULATOR_INTERVAL_SECONDS) / 3600, 1)
+
+    # Count today's completed tasks
+    tasks_done_today = sum(1 for t in MEM_STUDENT_TASKS if t.get("completed"))
 
     return jsonify({
         "profile": profile,
@@ -1747,33 +2071,47 @@ def student_dashboard_data():
         "active_students": random.randint(1100, 1300),
         "campus_energy_score": random.randint(70, 85),
         "waste_prevented_inr": random.randint(11000, 14000),
+        "tasks_done_today": tasks_done_today,
+        "total_tasks": len(MEM_STUDENT_TASKS),
+        "green_tokens_today": random.randint(100, 400),
         "timestamp": now.isoformat(),
     })
 
 
+# ── Leaderboard ──────────────────────────────────────────
 @app.route("/api/student/leaderboard", methods=["GET"])
 def student_leaderboard():
+    students = MEM_STUDENT_LEADERBOARD
     if USE_MONGO:
-        lb = list(mongo_db["student_leaderboard"].find({}, {"_id": 0}).sort("rank", 1))
-        if lb:
-            return jsonify(lb)
+        try:
+            lb = list(mongo_db["student_leaderboard"].find({}, {"_id": 0}).sort("rank", 1))
+            if lb:
+                students = lb
+        except Exception:
+            pass
+
     dept_standings = [
-        {"dept": "MPSTME", "coins": 14200, "color": "accent"},
-        {"dept": "MBA", "coins": 12500, "color": "cyan"},
+        {"dept": "MPSTME",       "coins": 14200, "color": "accent"},
+        {"dept": "MBA",          "coins": 12500, "color": "cyan"},
         {"dept": "Architecture", "coins": 11100, "color": "violet"},
-        {"dept": "Law", "coins": 8400, "color": "coral"},
-        {"dept": "Pharmacy", "coins": 7200, "color": "yellow"},
-        {"dept": "Science", "coins": 5900, "color": "fog"},
+        {"dept": "Law",          "coins": 8400,  "color": "coral"},
+        {"dept": "Pharmacy",     "coins": 7200,  "color": "yellow"},
+        {"dept": "Science",      "coins": 5900,  "color": "fog"},
+        {"dept": "Commerce",     "coins": 5100,  "color": "accent"},
     ]
-    return jsonify({"students": MEM_STUDENT_LEADERBOARD, "dept_standings": dept_standings})
+    return jsonify({"students": students, "dept_standings": dept_standings})
 
 
+# ── Challenges ───────────────────────────────────────────
 @app.route("/api/student/challenges", methods=["GET"])
 def student_challenges():
     if USE_MONGO:
-        challenges = list(mongo_db["student_challenges"].find({}, {"_id": 0}))
-        if challenges:
-            return jsonify(challenges)
+        try:
+            ch = list(mongo_db["student_challenges"].find({}, {"_id": 0}))
+            if ch:
+                return jsonify(ch)
+        except Exception:
+            pass
     return jsonify(MEM_STUDENT_CHALLENGES)
 
 
@@ -1786,28 +2124,105 @@ def join_challenge():
                 c["joined"] = True
                 break
     if USE_MONGO:
-        mongo_db["student_challenges"].update_one({"id": cid}, {"$set": {"joined": True}})
+        try:
+            mongo_db["student_challenges"].update_one({"id": cid}, {"$set": {"joined": True}})
+        except Exception:
+            pass
     return jsonify({"ok": True})
 
 
+# ── Tasks ────────────────────────────────────────────────
+@app.route("/api/student/tasks", methods=["GET"])
+def student_tasks():
+    """Return all tasks with completion status."""
+    category = request.args.get("category")  # optional filter
+    if USE_MONGO:
+        try:
+            filt = {} if not category else {"category": category}
+            tasks = list(mongo_db["student_tasks"].find(filt, {"_id": 0}))
+            if tasks:
+                return jsonify(tasks)
+        except Exception:
+            pass
+    tasks = MEM_STUDENT_TASKS
+    if category:
+        tasks = [t for t in tasks if t["category"] == category]
+    return jsonify(tasks)
+
+
+@app.route("/api/student/tasks/complete", methods=["POST"])
+def complete_task():
+    """Mark a task as completed and award green tokens."""
+    sid = request.json.get("id", "default")
+    task_id = request.json.get("task_id")
+
+    task = None
+    with _student_data_lock:
+        for t in MEM_STUDENT_TASKS:
+            if t["id"] == task_id:
+                if t.get("completed") and not t.get("repeatable"):
+                    return jsonify({"ok": False, "error": "Task already completed"}), 400
+                t["completed"] = True
+                task = t
+                break
+
+    if not task:
+        return jsonify({"ok": False, "error": "Task not found"}), 404
+
+    reward = task["reward"]
+    profile = _get_student_profile(sid)
+    new_balance = profile.get("coins", 0) + reward
+    new_tasks = profile.get("tasks_completed", 0) + 1
+    new_xp = profile.get("xp", 0) + (reward // 2)
+    new_tokens = profile.get("green_tokens", 0) + reward
+
+    updates = {
+        "coins": new_balance,
+        "total_earned": profile.get("total_earned", 0) + reward,
+        "tasks_completed": new_tasks,
+        "xp": new_xp,
+        "green_tokens": new_tokens,
+    }
+    _update_student_profile(sid, updates)
+    _sync_leaderboard_coins(new_balance)
+    _record_transaction(sid, "earn", reward, f"Task: {task['title']}", task.get("category", ""), task.get("icon", "✅"))
+
+    if USE_MONGO:
+        try:
+            mongo_db["student_tasks"].update_one({"id": task_id}, {"$set": {"completed": True}})
+        except Exception:
+            pass
+
+    return jsonify({
+        "ok": True,
+        "reward": reward,
+        "balance": new_balance,
+        "green_tokens": new_tokens,
+        "tasks_completed": new_tasks,
+        "xp": new_xp,
+    })
+
+
+# ── Wallet ───────────────────────────────────────────────
 @app.route("/api/student/wallet", methods=["GET"])
 def student_wallet():
     sid = request.args.get("id", "default")
     profile = _get_student_profile(sid)
-    transactions = [
-        {"icon": "📸", "title": "AI Scanner — Lab Waste Report", "sub": "Chemistry Lab", "amount": 150, "type": "earn", "time": "Today"},
-        {"icon": "🎯", "title": "Challenge Complete — Streak Keeper", "sub": "7-day streak", "amount": 100, "type": "earn", "time": "Today"},
-        {"icon": "🛍️", "title": "Redeemed: Canteen 20% Off", "sub": "Used at lunch", "amount": 50, "type": "spend", "time": "Yesterday"},
-        {"icon": "📞", "title": "Call Report — Lab AC Empty", "sub": "Verified by team", "amount": 75, "type": "earn", "time": "Yesterday"},
-        {"icon": "🔥", "title": "Streak Bonus — 10 Days", "sub": "Milestone reward", "amount": 200, "type": "earn", "time": "2 days ago"},
-        {"icon": "🛍️", "title": "Redeemed: 50 Print Pages", "sub": "Library credited", "amount": 200, "type": "spend", "time": "3 days ago"},
-    ]
+
+    transactions = MEM_STUDENT_TRANSACTIONS[:20]
     if USE_MONGO:
-        tx = list(mongo_db["student_transactions"].find({"student_id": sid}, {"_id": 0}).sort("created_at", -1).limit(20))
-        if tx:
-            transactions = tx
+        try:
+            tx = list(mongo_db["student_transactions"].find(
+                {"student_id": sid}, {"_id": 0}
+            ).sort("created_at", -1).limit(20))
+            if tx:
+                transactions = tx
+        except Exception:
+            pass
+
     return jsonify({
         "balance": profile.get("coins", 0),
+        "green_tokens": profile.get("green_tokens", 0),
         "total_earned": profile.get("total_earned", 0),
         "total_spent": profile.get("total_spent", 0),
         "transactions": transactions,
@@ -1821,19 +2236,15 @@ def earn_coins():
     reason = request.json.get("reason", "")
     profile = _get_student_profile(sid)
     new_balance = profile.get("coins", 0) + amount
-    _update_student_profile(sid, {"coins": new_balance, "total_earned": profile.get("total_earned", 0) + amount})
-    if USE_MONGO:
-        mongo_db["student_transactions"].insert_one({
-            "student_id": sid, "amount": amount, "type": "earn",
-            "reason": reason, "created_at": datetime.now()
-        })
-    # Also update leaderboard
-    with _student_data_lock:
-        for s in MEM_STUDENT_LEADERBOARD:
-            if s.get("is_user"):
-                s["coins"] = new_balance
-                break
-    return jsonify({"ok": True, "balance": new_balance})
+    new_tokens = profile.get("green_tokens", 0) + amount
+    _update_student_profile(sid, {
+        "coins": new_balance,
+        "total_earned": profile.get("total_earned", 0) + amount,
+        "green_tokens": new_tokens,
+    })
+    _sync_leaderboard_coins(new_balance)
+    _record_transaction(sid, "earn", amount, reason or "Coins Earned", "", "🪙")
+    return jsonify({"ok": True, "balance": new_balance, "green_tokens": new_tokens})
 
 
 @app.route("/api/student/wallet/spend", methods=["POST"])
@@ -1846,54 +2257,53 @@ def spend_coins():
     if balance < amount:
         return jsonify({"ok": False, "error": "Insufficient balance"}), 400
     new_balance = balance - amount
-    _update_student_profile(sid, {"coins": new_balance, "total_spent": profile.get("total_spent", 0) + amount})
+    _update_student_profile(sid, {
+        "coins": new_balance,
+        "total_spent": profile.get("total_spent", 0) + amount,
+    })
+    _sync_leaderboard_coins(new_balance)
+    _record_transaction(sid, "spend", amount, f"Redeemed: {item}", "", "🛍️")
+
+    # Record redemption
+    redemption = {
+        "student_id": sid, "item": item, "price": amount,
+        "time": "Just now", "status": "active",
+        "code": f"NMIMS-C0-{random.randint(1000, 9999)}",
+        "created_at": datetime.now(),
+    }
+    MEM_STUDENT_REDEMPTIONS.insert(0, redemption)
     if USE_MONGO:
-        mongo_db["student_transactions"].insert_one({
-            "student_id": sid, "amount": amount, "type": "spend",
-            "item": item, "created_at": datetime.now()
-        })
-    with _student_data_lock:
-        for s in MEM_STUDENT_LEADERBOARD:
-            if s.get("is_user"):
-                s["coins"] = new_balance
-                break
+        try:
+            mongo_db["student_redemptions"].insert_one(redemption.copy())
+        except Exception:
+            pass
+
     return jsonify({"ok": True, "balance": new_balance})
 
 
+# ── Badges ───────────────────────────────────────────────
 @app.route("/api/student/badges", methods=["GET"])
 def student_badges():
-    earned = [
-        {"emoji": "🌍", "name": "Eco Champion", "desc": "Reach top 10 on campus leaderboard."},
-        {"emoji": "🔦", "name": "Light Watcher", "desc": "Reported 10 unneeded lights."},
-        {"emoji": "❄️", "name": "AC Guardian", "desc": "Reported empty running ACs."},
-        {"emoji": "🔥", "name": "Streak Warrior", "desc": "Maintained a 10-day streak."},
-        {"emoji": "🏆", "name": "Week Champion", "desc": "Scored highest in MPSTME a week."},
-        {"emoji": "📸", "name": "Scanner Pro", "desc": "Completed 20 verified scans."},
-        {"emoji": "☀️", "name": "Solar Star", "desc": "Checked app during solar peaks."},
-        {"emoji": "🧪", "name": "Lab Sentinel", "desc": "Conserved lab energy."},
-        {"emoji": "🌱", "name": "First Step", "desc": "Earned your first 100 coins."},
-    ]
-    locked = [
-        {"emoji": "🔒", "name": "Water Warden", "desc": "Report 5 water leakages."},
-        {"emoji": "🔒", "name": "Energy Ninja", "desc": "Complete 50 actions."},
-        {"emoji": "🔒", "name": "Carbon Crusher", "desc": "Save 500kg of CO2."},
-        {"emoji": "🔒", "name": "Green Mentor", "desc": "Refer 3 students."},
-        {"emoji": "🔒", "name": "Challenge Master", "desc": "Complete 20 challenges."},
-        {"emoji": "🔒", "name": "Apex Guardian", "desc": "Reach Rank #1 overall."},
-    ]
     if USE_MONGO:
-        b = list(mongo_db["student_badges"].find({}, {"_id": 0}))
-        if b:
-            return jsonify(b)
-    return jsonify({"earned": earned, "locked": locked})
+        try:
+            b = mongo_db["student_badges"].find_one({}, {"_id": 0})
+            if b:
+                return jsonify(b)
+        except Exception:
+            pass
+    return jsonify(MEM_STUDENT_BADGES)
 
 
+# ── Feed ─────────────────────────────────────────────────
 @app.route("/api/student/feed", methods=["GET"])
 def student_feed():
     if USE_MONGO:
-        feed = list(mongo_db["student_feed"].find({}, {"_id": 0}).sort("created_at", -1).limit(20))
-        if feed:
-            return jsonify(feed)
+        try:
+            feed = list(mongo_db["student_feed"].find({}, {"_id": 0}).sort("created_at", -1).limit(20))
+            if feed:
+                return jsonify(feed)
+        except Exception:
+            pass
     return jsonify(MEM_STUDENT_FEED)
 
 
@@ -1904,39 +2314,68 @@ def like_feed_post():
         for f in MEM_STUDENT_FEED:
             if f["id"] == fid:
                 f["likes"] = f.get("likes", 0) + 1
+                if USE_MONGO:
+                    try:
+                        mongo_db["student_feed"].update_one({"id": fid}, {"$inc": {"likes": 1}})
+                    except Exception:
+                        pass
                 return jsonify({"ok": True, "likes": f["likes"]})
     return jsonify({"ok": False}), 404
 
 
+# ── Scan ─────────────────────────────────────────────────
 @app.route("/api/student/scan", methods=["POST"])
 def submit_scan():
     """Simulate an AI scan submission."""
     sid = request.json.get("id", "default")
     scan_type = request.json.get("type", "general")
+    locations = ["Chemistry Lab 204", "Block B Room 301", "Library Level 2",
+                 "MPSTME Lab 102", "Admin Block Floor 2", "Hostel D Corridor",
+                 "Lecture Hall 5", "Canteen Area", "Server Room", "Parking Lot"]
     severity_rewards = {"high": 150, "medium": 100, "low": 50}
     severity = random.choice(["high", "medium", "low"])
     reward = severity_rewards[severity]
+    location = random.choice(locations)
+
     profile = _get_student_profile(sid)
     new_balance = profile.get("coins", 0) + reward
     new_scans = profile.get("total_scans", 0) + 1
-    _update_student_profile(sid, {"coins": new_balance, "total_scans": new_scans})
-    with _student_data_lock:
-        for s in MEM_STUDENT_LEADERBOARD:
-            if s.get("is_user"):
-                s["coins"] = new_balance
-                break
+    new_tokens = profile.get("green_tokens", 0) + reward
+    co2 = round(random.uniform(0.3, 2.5), 1)
+
+    _update_student_profile(sid, {
+        "coins": new_balance, "total_scans": new_scans,
+        "total_earned": profile.get("total_earned", 0) + reward,
+        "green_tokens": new_tokens,
+        "scan_co2_kg": profile.get("scan_co2_kg", 0) + co2,
+    })
+    _sync_leaderboard_coins(new_balance)
+    _record_transaction(sid, "earn", reward, f"AI Scan — {location}", severity.title(), "📸")
+
+    scan_record = {
+        "id": f"sc{random.randint(100,999)}", "student_id": sid,
+        "type": scan_type, "severity": severity, "reward": reward,
+        "location": location, "time": "Just now",
+        "title": f"{'Unoccupied AC & Lights' if severity == 'high' else 'Idle Equipment' if severity == 'medium' else 'Minor Waste'}",
+        "co2_kg": co2, "created_at": datetime.now(),
+    }
+    MEM_STUDENT_SCAN_HISTORY.insert(0, scan_record)
+    if USE_MONGO:
+        try:
+            mongo_db["student_scan_history"].insert_one(scan_record.copy())
+        except Exception:
+            pass
+
     return jsonify({
-        "ok": True,
-        "severity": severity,
-        "reward": reward,
-        "balance": new_balance,
+        "ok": True, "severity": severity, "reward": reward,
+        "balance": new_balance, "green_tokens": new_tokens,
         "analysis": {
-            "title": f"Waste Detected: {'Unoccupied AC & Lights' if severity == 'high' else 'Minor Waste'}",
-            "description": "AI detected energy waste in scanned area. Good catch!",
+            "title": f"Waste Detected: {scan_record['title']}",
+            "description": f"AI detected energy waste at {location}. Good catch!",
             "rate_kwh": round(random.uniform(1.0, 3.5), 1),
             "cost_inr": round(random.uniform(20, 80)),
-            "carbon_kg": round(random.uniform(0.5, 2.5), 1),
-        }
+            "carbon_kg": co2,
+        },
     })
 
 
@@ -1947,80 +2386,218 @@ def quick_report():
     reward = 50
     profile = _get_student_profile(sid)
     new_balance = profile.get("coins", 0) + reward
-    _update_student_profile(sid, {"coins": new_balance})
-    with _student_data_lock:
-        for s in MEM_STUDENT_LEADERBOARD:
-            if s.get("is_user"):
-                s["coins"] = new_balance
-                break
+    _update_student_profile(sid, {
+        "coins": new_balance,
+        "total_earned": profile.get("total_earned", 0) + reward,
+        "green_tokens": profile.get("green_tokens", 0) + reward,
+    })
+    _sync_leaderboard_coins(new_balance)
+    _record_transaction(sid, "earn", reward, f"Quick Report: {report_type}", "", "⚡")
     return jsonify({"ok": True, "reward": reward, "balance": new_balance, "type": report_type})
 
 
+@app.route("/api/student/scan/history", methods=["GET"])
+def scan_history():
+    """Return scan history for a student."""
+    sid = request.args.get("id", "default")
+    if USE_MONGO:
+        try:
+            scans = list(mongo_db["student_scan_history"].find(
+                {"student_id": sid}, {"_id": 0}
+            ).sort("created_at", -1).limit(20))
+            if scans:
+                return jsonify(scans)
+        except Exception:
+            pass
+    return jsonify(MEM_STUDENT_SCAN_HISTORY)
+
+
+# ── Analytics ────────────────────────────────────────────
 @app.route("/api/student/analytics", methods=["GET"])
 def student_analytics():
     sid = request.args.get("id", "default")
     profile = _get_student_profile(sid)
-    return jsonify({
-        "weekly_coins": [320, 480, 210, 650, 890, 540, 760],
-        "radar": [0.85, 0.72, 0.90, 0.68, 0.55, 0.78],
-        "radar_labels": ["Scanning", "Challenges", "Streaks", "Reporting", "Social", "Actions"],
-        "best_day_coins": 890,
-        "longest_streak": 23,
-        "most_scans_day": 8,
-        "most_co2_saved": 18.4,
-        "action_breakdown": [
-            {"label": "Scanning", "pct": 38, "color": "accent"},
-            {"label": "Challenges", "pct": 28, "color": "cyan"},
-            {"label": "Calls", "pct": 18, "color": "coral"},
-            {"label": "Social", "pct": 10, "color": "violet"},
-            {"label": "Other", "pct": 6, "color": "fog"},
-        ],
-        "goals": [
-            {"title": "Reach Rank #1", "pct": 67, "sub": "3 positions to go", "color": "accent"},
-            {"title": "Save 200kg CO₂", "pct": 71, "sub": "142/200 kg", "color": "cyan"},
-            {"title": "50 Total Scans", "pct": 46, "sub": "23/50 scans", "color": "yellow"},
-            {"title": "25-Day Streak", "pct": 48, "sub": "12/25 days", "color": "coral"},
-        ],
-        "profile": profile,
-    })
+
+    analytics_data = MEM_STUDENT_ANALYTICS.copy()
+    if USE_MONGO:
+        try:
+            a = mongo_db["student_analytics"].find_one({"student_id": sid}, {"_id": 0})
+            if a:
+                analytics_data = a
+        except Exception:
+            pass
+
+    analytics_data["profile"] = profile
+    return jsonify(analytics_data)
 
 
+# ── Shop ─────────────────────────────────────────────────
 @app.route("/api/student/shop", methods=["GET"])
 def student_shop():
-    items = [
-        {"id": "s1", "emoji": "🍽️", "name": "Canteen 20% Off", "desc": "Valid at Main Canteen today", "price": 50},
-        {"id": "s2", "emoji": "🖨️", "name": "50 Print Pages", "desc": "Added to Library ID instantly", "price": 200},
-        {"id": "s3", "emoji": "🛏️", "name": "Priority Hostel", "desc": "Extra points for room choice", "price": 500},
-        {"id": "s4", "emoji": "📱", "name": "Zomato ₹100", "desc": "Gift voucher via email", "price": 300},
-        {"id": "s5", "emoji": "🎟️", "name": "Event Priority", "desc": "VIP seating at next event", "price": 250},
-        {"id": "s6", "emoji": "📚", "name": "Elective Priority", "desc": "Get first pick for tech electives", "price": 800, "out_of_stock": True},
-        {"id": "s7", "emoji": "🎬", "name": "BookMyShow ₹150", "desc": "Digital movie voucher", "price": 400},
-        {"id": "s8", "emoji": "☕", "name": "Starbucks ₹200", "desc": "Coffee on CampusZero", "price": 350},
-        {"id": "s9", "emoji": "📶", "name": "WiFi +100MB", "desc": "Boost your daily quota", "price": 150},
-    ]
+    category = request.args.get("category")
+    if USE_MONGO:
+        try:
+            filt = {} if not category else {"category": category}
+            items = list(mongo_db["student_shop"].find(filt, {"_id": 0}))
+            if items:
+                return jsonify(items)
+        except Exception:
+            pass
+    items = MEM_STUDENT_SHOP
+    if category:
+        items = [i for i in items if i.get("category") == category]
     return jsonify(items)
 
 
+@app.route("/api/student/shop/redeem", methods=["POST"])
+def shop_redeem():
+    """Redeem a shop item — deducts coins, records redemption."""
+    sid = request.json.get("id", "default")
+    item_id = request.json.get("item_id")
+
+    item = None
+    for s in MEM_STUDENT_SHOP:
+        if s["id"] == item_id:
+            item = s
+            break
+    if not item:
+        return jsonify({"ok": False, "error": "Item not found"}), 404
+    if item.get("out_of_stock") or item.get("stock", 1) <= 0:
+        return jsonify({"ok": False, "error": "Out of stock"}), 400
+
+    profile = _get_student_profile(sid)
+    price = item["price"]
+    balance = profile.get("coins", 0)
+    if balance < price:
+        return jsonify({"ok": False, "error": "Insufficient balance"}), 400
+
+    new_balance = balance - price
+    _update_student_profile(sid, {
+        "coins": new_balance,
+        "total_spent": profile.get("total_spent", 0) + price,
+    })
+    _sync_leaderboard_coins(new_balance)
+
+    code = f"NMIMS-C0-{random.randint(1000, 9999)}"
+    redemption = {
+        "student_id": sid, "item_id": item_id, "item": item["name"],
+        "emoji": item.get("emoji", "🎁"), "price": price,
+        "time": "Just now", "status": "active", "code": code,
+        "created_at": datetime.now(),
+    }
+    MEM_STUDENT_REDEMPTIONS.insert(0, redemption)
+    _record_transaction(sid, "spend", price, f"Redeemed: {item['name']}", code, "🛍️")
+
+    # Decrement stock
+    with _student_data_lock:
+        item["stock"] = max(0, item.get("stock", 1) - 1)
+        if item["stock"] == 0:
+            item["out_of_stock"] = True
+
+    if USE_MONGO:
+        try:
+            mongo_db["student_redemptions"].insert_one(redemption.copy())
+            mongo_db["student_shop"].update_one(
+                {"id": item_id},
+                {"$inc": {"stock": -1}}
+            )
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "balance": new_balance, "code": code, "item": item["name"]})
+
+
+@app.route("/api/student/redemptions", methods=["GET"])
+def student_redemptions():
+    """Return redemption history."""
+    sid = request.args.get("id", "default")
+    if USE_MONGO:
+        try:
+            r = list(mongo_db["student_redemptions"].find(
+                {"student_id": sid}, {"_id": 0}
+            ).sort("created_at", -1).limit(20))
+            if r:
+                return jsonify(r)
+        except Exception:
+            pass
+    return jsonify(MEM_STUDENT_REDEMPTIONS)
+
+
+# ── Events ───────────────────────────────────────────────
 @app.route("/api/student/events", methods=["GET"])
 def student_events():
-    events = [
-        {"id": "e1", "icon": "🌱", "title": "Energy Hackathon", "time": "Friday · 10 AM"},
-        {"id": "e2", "icon": "🗣️", "title": "Green Panel Talk", "time": "Next Mon · 2 PM"},
-        {"id": "e3", "icon": "♻️", "title": "E-Waste Drive", "time": "Next Wed · All Day"},
-    ]
-    return jsonify(events)
+    if USE_MONGO:
+        try:
+            ev = list(mongo_db["student_events"].find({}, {"_id": 0}))
+            if ev:
+                return jsonify(ev)
+        except Exception:
+            pass
+    return jsonify(MEM_STUDENT_EVENTS)
 
 
+@app.route("/api/student/events/rsvp", methods=["POST"])
+def rsvp_event():
+    """RSVP for an event — award bonus coins."""
+    sid = request.json.get("id", "default")
+    event_id = request.json.get("event_id")
+
+    event = None
+    with _student_data_lock:
+        for e in MEM_STUDENT_EVENTS:
+            if e["id"] == event_id:
+                e["joined"] = True
+                event = e
+                break
+
+    if not event:
+        return jsonify({"ok": False, "error": "Event not found"}), 404
+
+    reward = event.get("reward", 50)
+    profile = _get_student_profile(sid)
+    new_balance = profile.get("coins", 0) + reward
+    _update_student_profile(sid, {
+        "coins": new_balance,
+        "total_earned": profile.get("total_earned", 0) + reward,
+        "green_tokens": profile.get("green_tokens", 0) + reward,
+    })
+    _sync_leaderboard_coins(new_balance)
+    _record_transaction(sid, "earn", reward, f"Event RSVP: {event['title']}", "", "🎫")
+
+    if USE_MONGO:
+        try:
+            mongo_db["student_events"].update_one({"id": event_id}, {"$set": {"joined": True}})
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "balance": new_balance, "reward": reward})
+
+
+# ── Notifications ────────────────────────────────────────
 @app.route("/api/student/notifications", methods=["GET"])
 def student_notifications():
-    notifs = [
-        {"icon": "🔥", "title": "Streak at Risk!", "desc": "Log a green action in 6 hours.", "time": "2hrs ago", "unread": True},
-        {"icon": "🏆", "title": "You entered Top 3!", "desc": "Ranked #3 on campus.", "time": "4hrs ago", "unread": True},
-        {"icon": "📞", "title": "Missed Call", "desc": "CampusZero AI called.", "time": "Today 10:42", "unread": True},
-        {"icon": "💡", "title": "Waste Near You", "desc": "Report Classroom B-204.", "time": "Yesterday", "unread": False},
-        {"icon": "☀️", "title": "Solar Peak Alert", "desc": "Peak generation in 30 mins.", "time": "Yesterday", "unread": False},
-    ]
-    return jsonify(notifs)
+    if USE_MONGO:
+        try:
+            n = list(mongo_db["student_notifications"].find({}, {"_id": 0}).limit(20))
+            if n:
+                return jsonify(n)
+        except Exception:
+            pass
+    return jsonify(MEM_STUDENT_NOTIFICATIONS)
+
+
+@app.route("/api/student/notifications/read", methods=["POST"])
+def mark_notifications_read():
+    """Mark all notifications as read."""
+    with _student_data_lock:
+        for n in MEM_STUDENT_NOTIFICATIONS:
+            n["unread"] = False
+    if USE_MONGO:
+        try:
+            mongo_db["student_notifications"].update_many({}, {"$set": {"unread": False}})
+        except Exception:
+            pass
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------
