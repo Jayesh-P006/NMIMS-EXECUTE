@@ -6,9 +6,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
-  Leaf,
   Sparkles,
   Sun,
+  Database,
+  Gauge,
 } from "lucide-react";
 import AlertBanner from "./AlertBanner";
 import TopMetricsBar from "./TopMetricsBar";
@@ -17,8 +18,9 @@ import TopMetricsBar from "./TopMetricsBar";
 const navItems = [
   { key: "overview",    label: "Overview",              icon: LayoutDashboard },
   { key: "analytics",   label: "Energy Analytics",      icon: BarChart3 },
+  { key: "data",        label: "Data Management",       icon: Database },
+  { key: "sustainability", label: "Sustainability KPIs", icon: Gauge },
   { key: "solar",       label: "Solar Energy",          icon: Sun },
-  { key: "renewable",   label: "Renewable Simulator",   icon: Leaf },
   { key: "roi",         label: "ROI Calculator",        icon: Calculator },
 ];
 
@@ -46,7 +48,7 @@ export default function DashboardLayout({
           flex flex-col relative
           border-r border-white/[0.06]
           transition-[width] duration-300 ease-in-out
-          ${collapsed ? "w-[68px]" : "w-60"}
+          ${collapsed ? "w-[74px]" : "w-64"}
         `}
         style={{
           background: 'linear-gradient(180deg, #080808 0%, #000000 50%, #080808 100%)',
@@ -56,25 +58,27 @@ export default function DashboardLayout({
         <div className="absolute inset-y-0 right-0 w-[1px] bg-gradient-to-b from-transparent via-sky-500/10 to-transparent" />
 
         {/* Logo / Brand */}
-        <div className="flex items-center gap-3 px-4 h-16 border-b border-white/[0.06]">
-          <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500/20 to-violet-500/20 border border-sky-400/20">
-            <Building2 className="w-5 h-5 text-sky-400" />
+        <div className={`px-4 ${collapsed ? "h-16" : "h-[78px]"} border-b border-white/[0.06] flex items-center`}>
+          <div className={`flex items-center ${collapsed ? "justify-center w-full" : "gap-3"}`}>
+          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/20 to-violet-500/20 border border-sky-400/25 shadow-[0_0_14px_rgba(56,189,248,0.08)]">
+            <Building2 className="w-5 h-5 text-sky-300" />
             <div className="absolute -inset-0.5 rounded-xl bg-sky-400/10 blur-sm -z-10" />
           </div>
           {!collapsed && (
-            <div className="overflow-hidden whitespace-nowrap">
-              <p className="text-sm font-bold text-white leading-tight tracking-tight">
+            <div className="overflow-hidden">
+              <p className="text-[24px] font-extrabold text-white leading-none tracking-tight">
                 NMIMS Indore
               </p>
-              <p className="text-[9px] text-sky-400/70 uppercase tracking-[0.2em] font-medium">
+              <p className="text-[10px] text-sky-400/75 uppercase tracking-[0.18em] font-semibold mt-1">
                 Net-Zero Command
               </p>
             </div>
           )}
+          </div>
         </div>
 
         {/* Navigation Links */}
-        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 pt-6 pb-4 overflow-y-auto flex flex-col justify-start gap-2">
           {navItems.map(({ key, label, icon: Icon }) => {
             const isActive = key === activeNav;
             return (
@@ -83,28 +87,27 @@ export default function DashboardLayout({
                 onClick={() => handleNavChange(key)}
                 title={collapsed ? label : undefined}
                 className={`
-                  group relative flex items-center gap-3 w-full
-                  rounded-xl px-3 py-2.5 text-sm font-medium
+                  group relative flex items-center ${collapsed ? "justify-center" : "justify-start"} gap-3 w-full
+                  rounded-2xl ${collapsed ? "px-2 py-3" : "px-4 py-3"} text-[15px] font-medium
                   transition-all duration-200
                   ${isActive
                     ? "text-white"
-                    : "text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]"
+                    : "text-slate-500 hover:text-slate-200 hover:bg-white/[0.035]"
                   }
                 `}
               >
-                {/* Active indicator glow background */}
                 {isActive && (
                   <>
-                    <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-sky-500/[0.12] to-violet-500/[0.06] border border-sky-400/10" />
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.5)]" />
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-sky-500/[0.14] to-violet-500/[0.07] border border-sky-400/15" />
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-r-full bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.55)]" />
                   </>
                 )}
                 <Icon
-                  className={`relative w-[18px] h-[18px] flex-shrink-0 transition-colors duration-200 ${
-                    isActive ? "text-sky-400" : "text-slate-600 group-hover:text-slate-400"
+                  className={`relative w-[19px] h-[19px] flex-shrink-0 transition-colors duration-200 ${
+                    isActive ? "text-sky-400" : "text-slate-600 group-hover:text-slate-300"
                   }`}
                 />
-                {!collapsed && <span className="relative">{label}</span>}
+                {!collapsed && <span className="relative tracking-[0.01em] leading-none">{label}</span>}
               </button>
             );
           })}
@@ -112,8 +115,8 @@ export default function DashboardLayout({
 
         {/* Version badge */}
         {!collapsed && (
-          <div className="px-4 pb-2">
-            <div className="flex items-center gap-1.5 text-[9px] text-slate-600">
+          <div className="px-4 pb-3">
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-600">
               <Sparkles className="w-3 h-3" />
               <span>v1.0 — Smart Campus</span>
             </div>
@@ -126,7 +129,7 @@ export default function DashboardLayout({
             onClick={() => setCollapsed((c) => !c)}
             className="
               flex items-center justify-center w-full
-              rounded-xl py-2 text-slate-600
+              rounded-xl py-2.5 text-slate-600
               hover:bg-white/[0.03] hover:text-slate-400
               transition-all duration-200
             "
@@ -172,7 +175,7 @@ export default function DashboardLayout({
 
         {/* Scrollable body */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
-          {activeNav !== "solar" && <TopMetricsBar />}
+          {activeNav !== "solar" && activeNav !== "roi" && activeNav !== "sustainability" && <TopMetricsBar />}
           {/* Page content with entrance animation keyed to nav */}
           <div key={activeNav} className="page-enter">
             {children}

@@ -26,7 +26,8 @@ import {
   ArrowUp,
 } from "lucide-react";
 
-const API_URL = "http://localhost:5000/api/renewable-mix";
+const BASE = process.env.REACT_APP_API_URL || "";
+const API_URL = `${BASE}/api/renewable-mix`;
 const POLL_INTERVAL = 5000;
 
 /* ── Weather condition → icon ─────────────────────────────────── */
