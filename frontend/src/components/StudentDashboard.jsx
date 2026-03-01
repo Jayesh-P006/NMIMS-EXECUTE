@@ -236,8 +236,6 @@ export default function StudentDashboard({ onLogout }) {
   };
 
   // ── Request a Call logic ──────────────────────────────
-  const VOICE_AGENT_URL = "http://localhost:3001";
-
   const requestCall = async () => {
     const num = callPhone.replace(/\s+/g, "");
     if (num.length < 13 || !num.startsWith("+91")) {
@@ -248,7 +246,7 @@ export default function StudentDashboard({ onLogout }) {
     setCallError("");
     setCallSuccess(false);
     try {
-      const res = await fetch(`${VOICE_AGENT_URL}/api/call`, {
+      const res = await fetch(`${BASE}/api/call`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phoneNumber: num }),
@@ -261,7 +259,7 @@ export default function StudentDashboard({ onLogout }) {
         setCallError(data.error || "Failed to request call");
       }
     } catch (err) {
-      setCallError("Could not reach voice agent server. Please try again.");
+      setCallError("Could not reach server. Please try again.");
     } finally {
       setCallRequesting(false);
     }
