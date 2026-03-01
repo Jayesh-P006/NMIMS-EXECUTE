@@ -6,3 +6,4 @@ numpy>=1.26
 scikit-learn>=1.4
 requests>=2.31
 gunicorn>=22.0
+twilio>=9.0

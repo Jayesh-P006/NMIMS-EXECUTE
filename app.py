@@ -2601,6 +2601,95 @@ def mark_notifications_read():
 
 
 # ---------------------------------------------------------------------------
+# Voice Agent  — Twilio + Ultravox outbound call
+# ---------------------------------------------------------------------------
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")
+ULTRAVOX_API_KEY   = os.getenv("ULTRAVOX_API_KEY", "")
+
+_DEFAULT_VOICE_PROMPT = """
+1) Identity
+You are Zara, a virtual Green Student Ambassador calling agent for CampusZero AI at NMIMS University.
+Your voice character answers in a natural Indian accent.
+**CRITICAL LANGUAGE INSTRUCTION: You MUST speak in conversational "Hinglish".**
+
+CampusZero AI is NMIMS's intelligent campus energy management platform.
+You make outbound calls to students to inform them about an electricity waste issue.
+
+2) Call Flow Logic
+1. Check Availability
+2. Reason for Calling — electricity waste detected near the student
+3. Issue Confirmation from Student
+4. Additional Detail Collection
+5. Issue Detection Confirmation — 50 GreenCoins reward
+6. Quick Impact Share — rupee saving and CO2 impact
+7. App Recommendation — CampusZero AI Scanner
+8. Closing — thank the student
+
+3) Style Guidelines
+- ONLY speak in Hinglish. Mix Hindi and English words organically.
+- Keep the entire call polite, warm, and under three minutes.
+- Never make the student feel guilty.
+- Always tie the report back to actual rupee saving and CO2 impact.
+""".strip()
+
+
+def _create_ultravox_call(system_prompt: str) -> dict:
+    """Call Ultravox API and return the response JSON (contains joinUrl)."""
+    payload = {
+        "systemPrompt": system_prompt,
+        "model": "fixie-ai/ultravox",
+        "voice": "ad69ddb2-363f-4279-adf4-5961f127ec2f",
+        "languageHint": "en-IN",
+        "temperature": 0.3,
+        "firstSpeakerSettings": {"user": {}},
+        "medium": {"twilio": {}},
+    }
+    resp = http_requests.post(
+        "https://api.ultravox.ai/api/calls",
+        json=payload,
+        headers={"Content-Type": "application/json", "X-API-Key": ULTRAVOX_API_KEY},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@app.route("/api/call", methods=["POST"])
+def api_voice_call():
+    """Initiate an outbound Twilio call powered by Ultravox voice AI."""
+    try:
+        body = request.get_json(force=True)
+        phone = (body.get("phoneNumber") or "").replace(" ", "")
+        if not phone:
+            return jsonify({"error": "phoneNumber is required"}), 400
+        if not phone.startswith("+"):
+            phone = "+" + phone
+
+        system_prompt = (body.get("systemPrompt") or "").strip() or _DEFAULT_VOICE_PROMPT
+
+        # 1. Create Ultravox call → get WebSocket joinUrl
+        uv = _create_ultravox_call(system_prompt)
+        join_url = uv.get("joinUrl")
+        if not join_url:
+            return jsonify({"error": "No joinUrl from Ultravox"}), 502
+
+        # 2. Initiate Twilio outbound call with TwiML Stream
+        from twilio.rest import Client as TwilioClient
+        client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        call = client.calls.create(
+            twiml=f'<Response><Connect><Stream url="{join_url}"/></Connect></Response>',
+            to=phone,
+            from_=TWILIO_PHONE_NUMBER,
+        )
+        return jsonify({"success": True, "sid": call.sid})
+    except Exception as exc:
+        print(f"[VoiceAgent] Error: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
 # Serve React Frontend  (catch-all MUST be after all /api routes)
 # ---------------------------------------------------------------------------
 @app.route("/", defaults={"path": ""})
