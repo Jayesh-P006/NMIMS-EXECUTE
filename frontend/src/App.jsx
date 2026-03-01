@@ -3,8 +3,9 @@ import DashboardLayout from "./components/DashboardLayout";
 import OverviewPage from "./components/OverviewPage";
 import LiveEnergyChart from "./components/LiveEnergyChart";
 import ROICalculator from "./components/ROICalculator";
-import RenewableSimulator from "./components/RenewableSimulator";
 import SolarEnergyPage from "./components/SolarEnergyPage";
+import DataEntries from "./components/DataEntries";
+import SustainabilityKPIPage from "./components/SustainabilityKPIPage";
 
 /**
  * App — root component
@@ -16,11 +17,25 @@ import SolarEnergyPage from "./components/SolarEnergyPage";
  *   (Roadmap removed)
  */
 
-const PREDICT_URL = "http://localhost:5000/api/predict-surge";
+const BASE = process.env.REACT_APP_API_URL || "";
+const PREDICT_URL = `${BASE}/api/predict-surge`;
+const DATA_MODE_URL = `${BASE}/api/data-mode`;
+const LIVE_STATUS_URL = `${BASE}/api/live-status`;
+const CONSUMPTION_URL = `${BASE}/api/block-consumption`;
+
+const BLOCKS = [
+  { name: "STME Block", color: "border-l-sky-400/50" },
+  { name: "SBM Block", color: "border-l-emerald-400/50" },
+  { name: "SOC Block", color: "border-l-violet-400/50" },
+  { name: "SOL Block", color: "border-l-amber-400/50" },
+  { name: "SPTM Block", color: "border-l-rose-400/50" },
+];
 
 export default function App() {
   const [alert, setAlert] = useState(null);
   const [activeNav, setActiveNav] = useState("overview");
+  const [dataMode, setDataMode] = useState("manual");
+  const [blockBreakdown, setBlockBreakdown] = useState({});
 
   /* ── Fetch surge prediction on mount ────────────────────── */
   const fetchSurge = useCallback(async () => {
@@ -42,6 +57,62 @@ export default function App() {
     return () => clearInterval(id);
   }, [fetchSurge]);
 
+  const fetchBlockBreakdown = useCallback(async () => {
+    try {
+      const modeRes = await fetch(DATA_MODE_URL);
+      const modeJson = modeRes.ok ? await modeRes.json() : { mode: "manual" };
+      const mode = modeJson.mode === "iot" ? "iot" : "manual";
+      setDataMode(mode);
+
+      if (mode === "iot") {
+        const liveRes = await fetch(LIVE_STATUS_URL);
+        if (!liveRes.ok) return;
+        const liveJson = await liveRes.json();
+        const next = {};
+        (liveJson.blocks || []).forEach((b) => {
+          next[b.Block_Name] = Number((b.Grid_Power_Draw_kW || 0).toFixed(1));
+        });
+        setBlockBreakdown(next);
+        return;
+      }
+
+      const consRes = await fetch(CONSUMPTION_URL);
+      if (!consRes.ok) return;
+      const records = await consRes.json();
+      if (!records.length) {
+        setBlockBreakdown({});
+        return;
+      }
+
+      const latest = records.reduce(
+        (acc, r) => {
+          if (r.year > acc.year || (r.year === acc.year && r.month > acc.month)) {
+            return { year: r.year, month: r.month };
+          }
+          return acc;
+        },
+        { year: -1, month: -1 }
+      );
+
+      const next = {};
+      records
+        .filter((r) => r.year === latest.year && r.month === latest.month)
+        .forEach((r) => {
+          next[r.block] = Number((r.kwh || 0).toFixed(1));
+        });
+      setBlockBreakdown(next);
+    } catch {
+      // keep previous values if request fails
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeNav !== "analytics") return;
+    fetchBlockBreakdown();
+    const id = setInterval(fetchBlockBreakdown, 10000);
+    return () => clearInterval(id);
+  }, [activeNav, fetchBlockBreakdown]);
+
   /* ── Page content based on active nav ────────────────────── */
   const renderPage = () => {
     switch (activeNav) {
@@ -59,19 +130,20 @@ export default function App() {
                 <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">
                   Block-wise Breakdown
                 </h2>
-                {[
-                  { name: "STME Block", color: "border-l-sky-400/50" },
-                  { name: "SBM Block", color: "border-l-emerald-400/50" },
-                  { name: "SOC Block", color: "border-l-violet-400/50" },
-                  { name: "SOL Block", color: "border-l-amber-400/50" },
-                  { name: "SPTM Block", color: "border-l-rose-400/50" },
-                ].map((block) => (
+                <p className="text-[10px] text-slate-600 mb-2">
+                  Source: {dataMode === "iot" ? "IoT live grid draw" : "Data Management (latest monthly entries)"}
+                </p>
+                {BLOCKS.map((block) => (
                   <div
                     key={block.name}
                     className={`flex items-center justify-between py-3 pl-3 border-l-2 ${block.color} border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.03] transition-colors`}
                   >
                     <span className="text-sm text-slate-300">{block.name}</span>
-                    <span className="text-xs font-mono text-slate-500">— kW</span>
+                    <span className="text-xs font-mono text-slate-500">
+                      {blockBreakdown[block.name] !== undefined
+                        ? `${blockBreakdown[block.name].toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${dataMode === "iot" ? "kW" : "kWh"}`
+                        : `— ${dataMode === "iot" ? "kW" : "kWh"}`}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -87,18 +159,17 @@ export default function App() {
           </>
         );
 
+      case "data":
+        return <DataEntries />;
+
+      case "sustainability":
+        return <SustainabilityKPIPage />;
+
       case "solar":
         return <SolarEnergyPage />;
 
-      case "renewable":
-        return <RenewableSimulator />;
-
       case "roi":
-        return (
-          <section className="max-w-3xl">
-            <ROICalculator />
-          </section>
-        );
+        return <ROICalculator />;
 
       default:
         return <OverviewPage />;

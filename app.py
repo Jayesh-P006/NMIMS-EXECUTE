@@ -14,29 +14,36 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import requests as http_requests          # for weather API
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from sklearn.linear_model import LinearRegression
 from backend.forecasting_model import run_forecast as _run_forecast
 
-load_dotenv()
+# Load env vars: check root .env first, then backend/.env
+_env_root = Path(__file__).resolve().parent / ".env"
+_env_backend = Path(__file__).resolve().parent / "backend" / ".env"
+load_dotenv(_env_root)
+load_dotenv(_env_backend)   # second call only adds vars not already set
 
 MONGO_URI = os.getenv("MONGO_URI", "")
 MONGO_DB = os.getenv("MONGO_DB", "smart_campus")
 FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
-FLASK_PORT = int(os.getenv("FLASK_PORT", 5000))
+# Railway injects PORT; fall back to FLASK_PORT or 5000 for local dev
+FLASK_PORT = int(os.getenv("PORT", os.getenv("FLASK_PORT", "5000")))
 
 SIMULATOR_INTERVAL_SECONDS = 5
 SURGE_THRESHOLD_KW = 400
 
 # ---------------------------------------------------------------------------
-# Flask App
+# Flask App — serve React build as static files in production
 # ---------------------------------------------------------------------------
-app = Flask(__name__)
+BUILD_DIR = Path(__file__).resolve().parent / "frontend" / "build"
+app = Flask(__name__, static_folder=None)   # disable default /static
 CORS(app)
 
 # ---------------------------------------------------------------------------
@@ -56,6 +63,34 @@ MEM_KPIS = {}
 MEM_BLOCK_CONSUMPTION = []   # [{year, month, block, kwh, cost, timestamp}]
 _consumption_lock = threading.Lock()
 _mem_lock = threading.Lock()
+
+# Sustainability input store (managed via Data Management page)
+MEM_SUSTAINABILITY_INPUTS = {
+    "verified_campus_area_m2": None,
+    "baseline_peak_kw": None,
+    "students_by_year": {},                 # {"2026": 12000, ...}
+    "monthly_renewable_generation": [],     # [{year, month, kwh, timestamp}]
+    "occupancy_schedule": {},               # {"STME Block": 82, ...}
+}
+_sustainability_lock = threading.Lock()
+
+# Data-mode state  (manual | iot)
+_data_mode = {"mode": "manual"}   # default to manual
+_data_mode_lock = threading.Lock()
+
+# IoT connection state
+_iot_connection = {
+    "connected": False,
+    "device_id": None,
+    "device_name": None,
+    "connected_at": None,
+    "interval_sec": 60,
+}
+_iot_conn_lock = threading.Lock()
+
+# IoT device logs  (kept in a deque, max 500 entries)
+MEM_IOT_LOGS = deque(maxlen=500)
+_iot_logs_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Battery Storage Simulation State
@@ -297,7 +332,10 @@ def index():
         "status": "running",
         "endpoints": ["/blocks", "/energy-logs", "/api/live-status",
                       "/api/kpis", "/api/overview", "/api/renewable-mix",
-                      "/api/predict-surge", "/api/solar-live"],
+                      "/api/predict-surge", "/api/solar-live",
+                      "/api/data-mode", "/api/iot-connection", "/api/iot-logs",
+                      "/api/block-consumption", "/api/sustainability-inputs",
+                      "/api/sustainability-kpis", "/api/forecast"],
     })
 
 
@@ -934,6 +972,133 @@ def api_solar_live():
 
 
 # ---------------------------------------------------------------------------
+# Data Mode  (manual / iot)
+# ---------------------------------------------------------------------------
+@app.route("/api/data-mode", methods=["GET"])
+def get_data_mode():
+    """Return current data input mode."""
+    with _data_mode_lock:
+        return jsonify(_data_mode)
+
+
+@app.route("/api/data-mode", methods=["POST"])
+def set_data_mode():
+    """Set data input mode.  Body: { "mode": "manual" | "iot" }"""
+    body = request.get_json(force=True)
+    mode = body.get("mode", "manual")
+    if mode not in ("manual", "iot"):
+        return jsonify({"error": "mode must be 'manual' or 'iot'"}), 400
+    with _data_mode_lock:
+        _data_mode["mode"] = mode
+    return jsonify({"status": "ok", "mode": mode})
+
+
+# ---------------------------------------------------------------------------
+# IoT Connection Management
+# ---------------------------------------------------------------------------
+@app.route("/api/iot-connection", methods=["GET"])
+def get_iot_connection():
+    """Return IoT connection status."""
+    with _iot_conn_lock:
+        return jsonify(dict(_iot_connection))
+
+
+@app.route("/api/iot-connection", methods=["POST"])
+def set_iot_connection():
+    """Connect or disconnect IoT device.
+    Connect: { "action": "connect", "device_id": "...", "device_name": "...", "interval_sec": 60 }
+    Disconnect: { "action": "disconnect" }
+    """
+    body = request.get_json(force=True)
+    action = body.get("action", "connect")
+    with _iot_conn_lock:
+        if action == "connect":
+            _iot_connection["connected"] = True
+            _iot_connection["device_id"] = body.get("device_id", f"IOT-{random.randint(1000,9999)}")
+            _iot_connection["device_name"] = body.get("device_name", "Smart Energy Meter")
+            _iot_connection["connected_at"] = datetime.now().isoformat()
+            _iot_connection["interval_sec"] = int(body.get("interval_sec", 60))
+            # Also switch data mode to IoT
+            with _data_mode_lock:
+                _data_mode["mode"] = "iot"
+            return jsonify({"status": "connected", **dict(_iot_connection)})
+        else:
+            _iot_connection["connected"] = False
+            _iot_connection["device_id"] = None
+            _iot_connection["device_name"] = None
+            _iot_connection["connected_at"] = None
+            # Switch back to manual mode
+            with _data_mode_lock:
+                _data_mode["mode"] = "manual"
+            return jsonify({"status": "disconnected"})
+
+
+# ---------------------------------------------------------------------------
+# IoT Device Logs
+# ---------------------------------------------------------------------------
+def _iot_device_logger():
+    """Background thread that generates IoT meter readings every interval_sec."""
+    while True:
+        try:
+            with _iot_conn_lock:
+                is_connected = _iot_connection["connected"]
+                interval = _iot_connection["interval_sec"]
+                device_id = _iot_connection["device_id"]
+
+            if is_connected:
+                now = datetime.now()
+                log_entry = {
+                    "timestamp": now.isoformat(),
+                    "device_id": device_id,
+                    "readings": {},
+                }
+                total_kwh = 0
+                for bseed in BLOCK_SEEDS:
+                    block_name = bseed["Name"]
+                    reading = generate_energy_reading(block_name, now)
+                    # Convert kW to kWh for the interval
+                    kwh_interval = round(reading["Grid_Power_Draw_kW"] * (interval / 3600), 2)
+                    log_entry["readings"][block_name] = {
+                        "grid_kw": reading["Grid_Power_Draw_kW"],
+                        "solar_kw": reading["Solar_Power_Generated_kW"],
+                        "hvac_kw": reading["HVAC_Power_kW"],
+                        "kwh_consumed": kwh_interval,
+                    }
+                    total_kwh += kwh_interval
+                log_entry["total_kwh"] = round(total_kwh, 2)
+
+                with _iot_logs_lock:
+                    MEM_IOT_LOGS.append(log_entry)
+
+            time.sleep(interval if is_connected else 5)
+        except Exception as exc:
+            print(f"[IoT Logger] ERROR: {exc}")
+            time.sleep(5)
+
+
+@app.route("/api/iot-logs", methods=["GET"])
+def get_iot_logs():
+    """Return IoT device logs.  ?limit=50  (default 50, max 500)"""
+    limit = min(int(request.args.get("limit", 50)), 500)
+    with _iot_logs_lock:
+        logs = list(MEM_IOT_LOGS)
+    logs.reverse()  # newest first
+    return jsonify({
+        "count": len(logs[:limit]),
+        "total": len(logs),
+        "logs": logs[:limit],
+    })
+
+
+@app.route("/api/iot-logs", methods=["DELETE"])
+def clear_iot_logs():
+    """Clear IoT device logs."""
+    with _iot_logs_lock:
+        MEM_IOT_LOGS.clear()
+    return jsonify({"status": "ok", "cleared": True})
+
+
+# ---------------------------------------------------------------------------
 # Block Consumption Data  (Analysis Models)
 # ---------------------------------------------------------------------------
 @app.route("/api/block-consumption", methods=["GET"])
@@ -976,6 +1141,460 @@ def save_block_consumption():
     return jsonify({"status": "ok", "saved": len(saved), "records": saved})
 
 
+@app.route("/api/sustainability-inputs", methods=["GET"])
+def get_sustainability_inputs():
+    """Return sustainability configuration entered from Data Management."""
+    with _sustainability_lock:
+        payload = dict(MEM_SUSTAINABILITY_INPUTS)
+        payload["students_by_year"] = dict(MEM_SUSTAINABILITY_INPUTS.get("students_by_year", {}))
+        payload["monthly_renewable_generation"] = list(MEM_SUSTAINABILITY_INPUTS.get("monthly_renewable_generation", []))
+        payload["occupancy_schedule"] = dict(MEM_SUSTAINABILITY_INPUTS.get("occupancy_schedule", {}))
+    return jsonify({"status": "ok", **payload})
+
+
+@app.route("/api/sustainability-inputs", methods=["POST"])
+def save_sustainability_inputs():
+    """
+    Save sustainability inputs from Data Management.
+    Supported body keys:
+      - verified_campus_area_m2
+      - baseline_peak_kw
+      - student_year, active_students
+      - renewable_entry: {year, month, kwh}
+      - occupancy_schedule: {"STME Block": 85, ...}
+    """
+    body = request.get_json(force=True) or {}
+
+    with _sustainability_lock:
+        if "verified_campus_area_m2" in body:
+            v = body.get("verified_campus_area_m2")
+            MEM_SUSTAINABILITY_INPUTS["verified_campus_area_m2"] = float(v) if v not in (None, "") else None
+
+        if "baseline_peak_kw" in body:
+            v = body.get("baseline_peak_kw")
+            MEM_SUSTAINABILITY_INPUTS["baseline_peak_kw"] = float(v) if v not in (None, "") else None
+
+        if "student_year" in body and "active_students" in body:
+            sy = int(body.get("student_year"))
+            sc = int(body.get("active_students"))
+            MEM_SUSTAINABILITY_INPUTS.setdefault("students_by_year", {})[str(sy)] = sc
+
+        if "renewable_entry" in body and isinstance(body.get("renewable_entry"), dict):
+            re = body.get("renewable_entry")
+            ry = int(re.get("year"))
+            rm = int(re.get("month"))
+            rk = float(re.get("kwh", 0))
+            existing = MEM_SUSTAINABILITY_INPUTS.setdefault("monthly_renewable_generation", [])
+            existing[:] = [x for x in existing if not (int(x.get("year", 0)) == ry and int(x.get("month", 0)) == rm)]
+            existing.append({
+                "year": ry,
+                "month": rm,
+                "kwh": round(rk, 2),
+                "timestamp": datetime.now().isoformat(),
+            })
+
+        if "occupancy_schedule" in body and isinstance(body.get("occupancy_schedule"), dict):
+            cleaned = {}
+            for k, v in body.get("occupancy_schedule", {}).items():
+                if v in (None, ""):
+                    continue
+                try:
+                    pct = max(0.0, min(100.0, float(v)))
+                    cleaned[str(k)] = round(pct, 2)
+                except Exception:
+                    continue
+            MEM_SUSTAINABILITY_INPUTS["occupancy_schedule"] = cleaned
+
+        payload = dict(MEM_SUSTAINABILITY_INPUTS)
+        payload["students_by_year"] = dict(MEM_SUSTAINABILITY_INPUTS.get("students_by_year", {}))
+        payload["monthly_renewable_generation"] = list(MEM_SUSTAINABILITY_INPUTS.get("monthly_renewable_generation", []))
+        payload["occupancy_schedule"] = dict(MEM_SUSTAINABILITY_INPUTS.get("occupancy_schedule", {}))
+
+    return jsonify({"status": "ok", **payload})
+
+
+# ---------------------------------------------------------------------------
+# Sustainability KPIs  (linked to Data Management)
+# ---------------------------------------------------------------------------
+def _month_key(year, month):
+    return f"{int(year)}-{int(month):02d}"
+
+
+def _month_days(year, month):
+    if month in (1, 3, 5, 7, 8, 10, 12):
+        return 31
+    if month in (4, 6, 9, 11):
+        return 30
+    leap = (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0))
+    return 29 if leap else 28
+
+
+def _as_period_label(year, month):
+    return datetime(int(year), int(month), 1).strftime("%b %Y")
+
+
+def _signed_pct(current, previous):
+    if previous in (None, 0):
+        return None
+    return round(((current - previous) / abs(previous)) * 100, 1)
+
+
+def _trend_word(delta_pct, lower_is_better):
+    if delta_pct is None:
+        return "stable"
+    if lower_is_better:
+        return "improved" if delta_pct < 0 else "worsened"
+    return "improved" if delta_pct > 0 else "worsened"
+
+
+def _aggregate_manual_monthly(records):
+    grouped = {}
+    for r in records:
+        key = _month_key(r.get("year"), r.get("month"))
+        if key not in grouped:
+            grouped[key] = {
+                "year": int(r.get("year", 0)),
+                "month": int(r.get("month", 0)),
+                "kwh": 0.0,
+                "cost": 0.0,
+            }
+        grouped[key]["kwh"] += float(r.get("kwh", 0.0))
+        grouped[key]["cost"] += float(r.get("cost", 0.0))
+    return sorted(grouped.values(), key=lambda x: (x["year"], x["month"]))
+
+
+def _kpi_item(kpi_id, title, value, unit, lower_is_better, delta_pct, formula, description, sparkline):
+    return {
+        "id": kpi_id,
+        "title": title,
+        "value": round(value, 2) if isinstance(value, (int, float)) else value,
+        "unit": unit,
+        "trend": _trend_word(delta_pct, lower_is_better),
+        "delta_pct": abs(delta_pct) if isinstance(delta_pct, (int, float)) else None,
+        "delta_signed_pct": delta_pct,
+        "lower_is_better": lower_is_better,
+        "formula": formula,
+        "description": description,
+        "sparkline": sparkline,
+    }
+
+
+@app.route("/api/sustainability-kpis", methods=["GET"])
+def api_sustainability_kpis():
+    """
+    Sustainability KPI pack derived from Data Management mode:
+      - manual mode -> /api/block-consumption records
+      - iot mode    -> /api/iot-logs (last 24h, live)
+    """
+    with _data_mode_lock:
+        mode = _data_mode.get("mode", "manual")
+
+    fallback_students = int(float(os.getenv("CAMPUS_TOTAL_STUDENTS", "12000")))
+    fallback_area_m2 = float(os.getenv("CAMPUS_AREA_M2", "120000"))
+    fallback_baseline_peak_kw = float(os.getenv("BASELINE_PEAK_KW", "2400"))
+    grid_emission_factor = float(os.getenv("GRID_EMISSION_FACTOR_KG_PER_KWH", "0.82"))
+    default_load_factor = float(os.getenv("LOAD_FACTOR_ASSUMPTION", "0.45"))
+
+    with _sustainability_lock:
+        si = dict(MEM_SUSTAINABILITY_INPUTS)
+        si_students = dict(MEM_SUSTAINABILITY_INPUTS.get("students_by_year", {}))
+        si_renewable = list(MEM_SUSTAINABILITY_INPUTS.get("monthly_renewable_generation", []))
+        si_occupancy = dict(MEM_SUSTAINABILITY_INPUTS.get("occupancy_schedule", {}))
+
+    campus_area_m2 = float(si.get("verified_campus_area_m2") or fallback_area_m2)
+    baseline_peak_kw = float(si.get("baseline_peak_kw") or fallback_baseline_peak_kw)
+
+    occ_vals = [float(v) / 100.0 for v in si_occupancy.values() if float(v) > 0]
+    occupancy_factor = (sum(occ_vals) / len(occ_vals)) if occ_vals else 1.0
+
+    requirements = {
+        "provided": {
+            "campus_students": fallback_students,
+            "campus_area_m2": campus_area_m2,
+            "baseline_peak_kw": baseline_peak_kw,
+            "grid_emission_factor_kg_per_kwh": grid_emission_factor,
+            "occupancy_factor": round(occupancy_factor, 3),
+        },
+        "needed_for_full_accuracy": [
+            "Monthly solar generation (kWh) per block/month in Data Management",
+            "Campus area (m²) verified by facilities team",
+            "Active student/headcount by academic year",
+            "Baseline peak demand (kW) from historical utility max-demand bills",
+            "Block-level occupancy schedule (optional for normalization)",
+        ],
+    }
+
+    # -----------------------
+    # MANUAL mode KPIs
+    # -----------------------
+    if mode == "manual":
+        with _consumption_lock:
+            records = list(MEM_BLOCK_CONSUMPTION)
+
+        monthly = _aggregate_manual_monthly(records)
+        if not monthly:
+            return jsonify({
+                "status": "ok",
+                "mode": "manual",
+                "period": None,
+                "kpis": [],
+                "message": "No manual entries found. Add monthly block consumption in Data Management.",
+                "requirements": requirements,
+            })
+
+        latest = monthly[-1]
+        previous = monthly[-2] if len(monthly) > 1 else None
+        latest_kwh = latest["kwh"]
+        prev_kwh = previous["kwh"] if previous else None
+
+        students_for_latest_year = int(si_students.get(str(latest["year"]), fallback_students))
+
+        renewable_map = {
+            _month_key(int(x.get("year", 0)), int(x.get("month", 0))): float(x.get("kwh", 0.0))
+            for x in si_renewable
+        }
+        latest_month_key = _month_key(latest["year"], latest["month"])
+        prev_month_key = _month_key(previous["year"], previous["month"]) if previous else None
+        latest_renewable_kwh = renewable_map.get(latest_month_key)
+        prev_renewable_kwh = renewable_map.get(prev_month_key) if prev_month_key else None
+
+        avg_monthly_kwh = sum(m["kwh"] for m in monthly) / max(len(monthly), 1)
+        annualised_kwh = avg_monthly_kwh * 12
+
+        kwh_per_student = annualised_kwh / max(students_for_latest_year, 1)
+        energy_intensity = annualised_kwh / max((campus_area_m2 * max(occupancy_factor, 0.1)), 1)
+
+        mdays = _month_days(latest["year"], latest["month"])
+        estimated_peak_kw = latest_kwh / max((mdays * 24 * default_load_factor), 1)
+        peak_reduction_pct = ((baseline_peak_kw - estimated_peak_kw) / max(baseline_peak_kw, 1)) * 100
+
+        renewable_pct = None
+        renewable_delta = None
+        if latest_renewable_kwh is not None and latest_kwh > 0:
+            renewable_pct = (latest_renewable_kwh / latest_kwh) * 100
+            if prev_renewable_kwh is not None and previous and previous["kwh"] > 0:
+                prev_pct = (prev_renewable_kwh / previous["kwh"]) * 100
+                renewable_delta = _signed_pct(renewable_pct, prev_pct)
+
+        spark_labels = [_as_period_label(m["year"], m["month"]) for m in monthly[-6:]]
+        spark_kwh_values = [round(m["kwh"], 1) for m in monthly[-6:]]
+        spark_intensity_values = [
+            round((m["kwh"] * 12) / max((campus_area_m2 * max(occupancy_factor, 0.1)), 1), 2)
+            for m in monthly[-6:]
+        ]
+        spark_peak_values = [
+            round((m["kwh"] / max((_month_days(m["year"], m["month"]) * 24 * default_load_factor), 1)), 2)
+            for m in monthly[-6:]
+        ]
+        spark_renew_values = []
+        for m in monthly[-6:]:
+            mk = _month_key(m["year"], m["month"])
+            rk = renewable_map.get(mk)
+            spark_renew_values.append(round((rk / m["kwh"] * 100), 2) if rk is not None and m["kwh"] > 0 else None)
+
+        kpis = [
+            _kpi_item(
+                "kwh_per_student",
+                "kWh per Student",
+                kwh_per_student,
+                "kWh/student-year",
+                True,
+                _signed_pct(latest_kwh, prev_kwh),
+                "(Average Monthly Campus Consumption × 12) ÷ Total Students",
+                "Annualized campus consumption normalized by student population.",
+                {"labels": spark_labels, "values": spark_kwh_values},
+            ),
+            _kpi_item(
+                "renewable_pct",
+                "Renewable % Contribution",
+                renewable_pct if renewable_pct is not None else "N/A",
+                "%",
+                False,
+                renewable_delta,
+                "(Renewable Generation kWh ÷ Total Consumption kWh) × 100",
+                "Uses monthly renewable generation entered in Data Management.",
+                {"labels": spark_labels, "values": spark_renew_values},
+            ),
+            _kpi_item(
+                "peak_reduction",
+                "Peak Load Reduction",
+                peak_reduction_pct,
+                "%",
+                False,
+                None,
+                "((Baseline Peak kW − Current Peak kW) ÷ Baseline Peak kW) × 100",
+                "Current peak is estimated from monthly consumption and load-factor assumption.",
+                {"labels": spark_labels, "values": spark_peak_values},
+            ),
+            _kpi_item(
+                "energy_intensity",
+                "Energy Intensity",
+                energy_intensity,
+                "kWh/m²-year",
+                True,
+                _signed_pct(latest_kwh, prev_kwh),
+                "(Average Monthly Campus Consumption × 12) ÷ (Campus Area × Occupancy Factor)",
+                "Annualized energy consumed per square meter with optional occupancy normalization.",
+                {"labels": spark_labels, "values": spark_intensity_values},
+            ),
+        ]
+
+        return jsonify({
+            "status": "ok",
+            "mode": "manual",
+            "period": _as_period_label(latest["year"], latest["month"]),
+            "latest_month_total_kwh": round(latest_kwh, 2),
+            "latest_month_total_cost_inr": round(latest["cost"], 2),
+            "renewable_pct_available": renewable_pct is not None,
+            "assumptions": {
+                "load_factor_assumption": default_load_factor,
+                "baseline_peak_kw": baseline_peak_kw,
+                "students_for_latest_year": students_for_latest_year,
+                "occupancy_factor": round(occupancy_factor, 3),
+            },
+            "kpis": kpis,
+            "requirements": requirements,
+        })
+
+    # -----------------------
+    # IOT mode KPIs (24h)
+    # -----------------------
+    with _iot_logs_lock:
+        logs = list(MEM_IOT_LOGS)
+    if not logs:
+        return jsonify({
+            "status": "ok",
+            "mode": "iot",
+            "period": "Last 24h",
+            "kpis": [],
+            "message": "No IoT logs available yet. Connect device in Data Management.",
+            "requirements": requirements,
+        })
+
+    with _iot_conn_lock:
+        interval_sec = max(int(_iot_connection.get("interval_sec", 60)), 1)
+
+    now = datetime.now()
+    last_24h = []
+    for lg in logs:
+        try:
+            ts = datetime.fromisoformat(lg.get("timestamp"))
+            if ts >= now - timedelta(hours=24):
+                last_24h.append(lg)
+        except Exception:
+            continue
+
+    if not last_24h:
+        last_24h = logs[-100:]
+
+    total_grid_kwh = 0.0
+    total_solar_kwh = 0.0
+    peak_grid_kw = 0.0
+    time_buckets = {}
+
+    for lg in last_24h:
+        try:
+            ts = datetime.fromisoformat(lg.get("timestamp"))
+        except Exception:
+            ts = now
+
+        hour_label = ts.strftime("%H:00")
+        if hour_label not in time_buckets:
+            time_buckets[hour_label] = {"grid": 0.0, "solar": 0.0, "count": 0}
+
+        for r in (lg.get("readings") or {}).values():
+            gkw = float(r.get("grid_kw", 0.0))
+            skw = float(r.get("solar_kw", 0.0))
+            total_grid_kwh += gkw * (interval_sec / 3600)
+            total_solar_kwh += skw * (interval_sec / 3600)
+            peak_grid_kw = max(peak_grid_kw, gkw)
+            time_buckets[hour_label]["grid"] += gkw
+            time_buckets[hour_label]["solar"] += skw
+            time_buckets[hour_label]["count"] += 1
+
+    total_kwh = total_grid_kwh + total_solar_kwh
+    renewable_pct = (total_solar_kwh / total_kwh * 100) if total_kwh > 0 else 0.0
+
+    # Annualize 24h profile for normalization KPIs
+    current_year = datetime.now().year
+    students_for_year = int(si_students.get(str(current_year), fallback_students))
+    annualised_kwh = total_kwh * 365
+    kwh_per_student = annualised_kwh / max(students_for_year, 1)
+    energy_intensity = annualised_kwh / max((campus_area_m2 * max(occupancy_factor, 0.1)), 1)
+    peak_reduction_pct = ((baseline_peak_kw - peak_grid_kw) / max(baseline_peak_kw, 1)) * 100
+
+    hourly = sorted(time_buckets.items(), key=lambda x: x[0])[-6:]
+    spark_labels = [h[0] for h in hourly]
+    spark_grid_values = [round((h[1]["grid"] / max(h[1]["count"], 1)), 2) for h in hourly]
+    spark_ren_values = [
+        round((h[1]["solar"] / max((h[1]["grid"] + h[1]["solar"]), 1)) * 100, 2)
+        for h in hourly
+    ]
+
+    kpis = [
+        _kpi_item(
+            "kwh_per_student",
+            "kWh per Student",
+            kwh_per_student,
+            "kWh/student-year",
+            True,
+            None,
+            "(Last 24h Total kWh × 365) ÷ Total Students",
+            "Annualized from last 24h IoT profile.",
+            {"labels": spark_labels, "values": spark_grid_values},
+        ),
+        _kpi_item(
+            "renewable_pct",
+            "Renewable % Contribution",
+            renewable_pct,
+            "%",
+            False,
+            None,
+            "(Solar Energy kWh ÷ Total Energy kWh) × 100",
+            "Share of renewable contribution over the measured period.",
+            {"labels": spark_labels, "values": spark_ren_values},
+        ),
+        _kpi_item(
+            "peak_reduction",
+            "Peak Load Reduction",
+            peak_reduction_pct,
+            "%",
+            False,
+            None,
+            "((Baseline Peak kW − Current Peak kW) ÷ Baseline Peak kW) × 100",
+            "Current peak derived from max IoT grid draw in selected period.",
+            {"labels": spark_labels, "values": spark_grid_values},
+        ),
+        _kpi_item(
+            "energy_intensity",
+            "Energy Intensity",
+            energy_intensity,
+            "kWh/m²-year",
+            True,
+            None,
+            "(Last 24h Total kWh × 365) ÷ (Campus Area × Occupancy Factor)",
+            "Annualized consumption per square meter based on IoT telemetry with occupancy normalization.",
+            {"labels": spark_labels, "values": spark_grid_values},
+        ),
+    ]
+
+    return jsonify({
+        "status": "ok",
+        "mode": "iot",
+        "period": "Last 24h",
+        "total_grid_kwh": round(total_grid_kwh, 2),
+        "total_solar_kwh": round(total_solar_kwh, 2),
+        "peak_grid_kw": round(peak_grid_kw, 2),
+        "assumptions": {
+            "students_for_year": students_for_year,
+            "baseline_peak_kw": baseline_peak_kw,
+            "occupancy_factor": round(occupancy_factor, 3),
+        },
+        "kpis": kpis,
+        "requirements": requirements,
+    })
+
+
 # ---------------------------------------------------------------------------
 # Demand Forecast  (Analysis Models)
 # ---------------------------------------------------------------------------
@@ -990,19 +1609,55 @@ def get_forecast():
 
 
 # ---------------------------------------------------------------------------
+# Serve React Frontend  (catch-all MUST be after all /api routes)
+# ---------------------------------------------------------------------------
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react(path):
+    """Serve the React SPA from frontend/build."""
+    # Never serve HTML for API paths — return proper 404 JSON instead
+    if path.startswith("api/") or path.startswith("api"):
+        return jsonify({"error": "Not found", "path": f"/{path}"}), 404
+
+    full = BUILD_DIR / path
+    if full.is_file():
+        return send_from_directory(str(BUILD_DIR), path)
+    # Fall back to index.html for client-side routing
+    return send_from_directory(str(BUILD_DIR), "index.html")
+
+
+# ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
+_initialised = False
+_init_lock = threading.Lock()
+
+
 def initialise():
+    """Idempotent startup: connect DB, seed data, launch daemon threads."""
+    global _initialised
+    with _init_lock:
+        if _initialised:
+            return
+        _initialised = True
+
     _try_connect_mongo()
     _seed_blocks()
 
     simulator_thread = threading.Thread(target=iot_simulator, daemon=True)
     simulator_thread.start()
     print("[Setup] IoT simulator thread launched.")
+
+    iot_logger_thread = threading.Thread(target=_iot_device_logger, daemon=True)
+    iot_logger_thread.start()
+    print("[Setup] IoT device logger thread launched.")
+
     print(f"[Setup] Storage: {'MongoDB' if USE_MONGO else 'In-Memory (no DB needed)'}")
     print(f"[Setup] Server: http://{FLASK_HOST}:{FLASK_PORT}")
 
 
+# Run initialise() at import-time so gunicorn workers pick it up
+initialise()
+
 if __name__ == "__main__":
-    initialise()
     app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)

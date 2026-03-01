@@ -42,19 +42,17 @@ import {
   WifiOff,
   Cpu,
   BrainCircuit,
-  Save,
-  Calendar,
   Download,
-  Plus,
-  Trash2,
   IndianRupee,
 } from "lucide-react";
 
-const API_URL = "http://localhost:5000/api/overview";
-const SURGE_URL = "http://localhost:5000/api/predict-surge";
+const BASE = process.env.REACT_APP_API_URL || "";
+const API_URL = `${BASE}/api/overview`;
+const SURGE_URL = `${BASE}/api/predict-surge`;
 const POLL_INTERVAL = 5000;
-const CONSUMPTION_URL = "http://localhost:5000/api/block-consumption";
-const FORECAST_URL   = "http://localhost:5000/api/forecast";
+const CONSUMPTION_URL = `${BASE}/api/block-consumption`;
+const FORECAST_URL   = `${BASE}/api/forecast`;
+const DATA_MODE_URL  = `${BASE}/api/data-mode`;
 
 const ANALYSIS_BLOCKS = [
   { key: "STME Block", short: "STME", color: "#38bdf8" },
@@ -65,7 +63,6 @@ const ANALYSIS_BLOCKS = [
 ];
 
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const FULL_MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const ELECTRICITY_RATE = 8; // ₹/kWh
 
 /* ══════════════════════════════════════════════════════════════
@@ -93,12 +90,26 @@ function gradeBg(grade) {
   return "bg-red-500/15";
 }
 
+function FormulaInfoButton({ formula }) {
+  return (
+    <details className="group relative">
+      <summary className="list-none cursor-pointer w-4 h-4 rounded-md border border-white/[0.08] bg-white/[0.03] text-slate-500 hover:text-slate-300 hover:bg-white/[0.05] flex items-center justify-center">
+        <Info className="w-2.5 h-2.5" />
+      </summary>
+      <div className="absolute right-0 mt-2 z-20 w-72 p-3 rounded-xl border border-white/[0.08] bg-[#090f1a]/95 backdrop-blur-xl shadow-xl">
+        <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Formula</p>
+        <p className="text-[11px] leading-relaxed text-slate-300">{formula}</p>
+      </div>
+    </details>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════
    SUB-COMPONENTS
    ══════════════════════════════════════════════════════════════ */
 
 /* ── 1. Net-Zero Progress Ring ─────────────────────────────── */
-function NetZeroGauge({ progress }) {
+function NetZeroGauge({ progress, formula }) {
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (progress / 100) * circumference;
@@ -151,29 +162,35 @@ function NetZeroGauge({ progress }) {
           <span className="text-[8px] text-slate-500 uppercase tracking-[0.2em]">Net-Zero</span>
         </div>
       </div>
-      <p className="text-[10px] text-slate-500 mt-2">Progress to Target</p>
+      <div className="mt-2 flex items-center gap-2">
+        <p className="text-[10px] text-slate-500">Progress to Target</p>
+        <FormulaInfoButton formula={formula} />
+      </div>
     </div>
   );
 }
 
 /* ── 2. Stat Card (glass variant) ──────────────────────────── */
-function StatCard({ icon: Icon, label, value, sub, accent, accentBg, trend, trendUp, accentBar }) {
+function StatCard({ icon: Icon, label, value, sub, accent, accentBg, trend, trendUp, accentBar, formula }) {
   return (
     <div className={`glass-card glass-card-hover ${accentBar || ""} p-4`}>
       <div className="flex items-center justify-between mb-3">
         <div className={`p-2 rounded-xl ${accentBg} border border-white/[0.04]`}>
           <Icon className={`w-4 h-4 ${accent}`} />
         </div>
-        {trend && (
-          <span className={`flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
-            trendUp ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
-          }`}>
-            {trendUp
-              ? <ArrowUpRight className="w-3 h-3" />
-              : <ArrowDownRight className="w-3 h-3" />}
-            {trend}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {formula && <FormulaInfoButton formula={formula} />}
+          {trend && (
+            <span className={`flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
+              trendUp ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
+            }`}>
+              {trendUp
+                ? <ArrowUpRight className="w-3 h-3" />
+                : <ArrowDownRight className="w-3 h-3" />}
+              {trend}
+            </span>
+          )}
+        </div>
       </div>
       <p className="text-xl font-extrabold text-white tracking-tight">{value}</p>
       <p className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">{label}</p>
@@ -183,7 +200,7 @@ function StatCard({ icon: Icon, label, value, sub, accent, accentBg, trend, tren
 }
 
 /* ── 3. Sustainability Score Badge ─────────────────────────── */
-function SustainabilityBadge({ score, grade }) {
+function SustainabilityBadge({ score, grade, formula }) {
   return (
     <div className="glass-card glass-card-hover p-5 flex flex-col items-center justify-center">
       <div className={`w-16 h-16 rounded-2xl ${gradeBg(grade)} flex items-center justify-center mb-3 border border-white/[0.04]`}>
@@ -200,15 +217,18 @@ function SustainabilityBadge({ score, grade }) {
       </div>
       <p className="text-sm font-bold text-white">{score}/100</p>
       <p className="text-[9px] text-slate-500 uppercase tracking-[0.15em] mt-1">Sustainability</p>
-      <p className="text-[9px] text-slate-600 mt-1 text-center">
-        Renewable Mix &bull; Carbon &bull; Efficiency
-      </p>
+      <div className="mt-1 flex items-center gap-2">
+        <p className="text-[9px] text-slate-600 text-center">
+          Renewable Mix &bull; Carbon &bull; Efficiency
+        </p>
+        <FormulaInfoButton formula={formula} />
+      </div>
     </div>
   );
 }
 
 /* ── 4. Peak Demand Indicator ──────────────────────────────── */
-function PeakDemandCard({ peak, target, time }) {
+function PeakDemandCard({ peak, target, time, formula }) {
   const pct = Math.min(100, (peak / target) * 100);
   const isAlert = pct > 85;
 
@@ -221,9 +241,12 @@ function PeakDemandCard({ peak, target, time }) {
           </div>
           <span className="text-xs text-slate-400 font-medium">Peak Demand</span>
         </div>
-        {isAlert && (
-          <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
-        )}
+        <div className="flex items-center gap-2">
+          <FormulaInfoButton formula={formula} />
+          {isAlert && (
+            <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
+          )}
+        </div>
       </div>
       <div className="flex items-baseline gap-2 mb-2">
         <span className="text-xl font-extrabold text-white">{peak}</span>
@@ -561,17 +584,10 @@ export default function OverviewPage() {
   const [surgeData, setSurgeData] = useState(null);
   const [connected, setConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [overviewTab, setOverviewTab] = useState("iot");
+  const [overviewTab, setOverviewTab] = useState("iot"); // auto-set from data mode
 
   /* ── Analysis Models state ── */
   const [consumptionRecords, setConsumptionRecords] = useState([]);
-  const [entryYear, setEntryYear] = useState(new Date().getFullYear());
-  const [entryMonth, setEntryMonth] = useState(new Date().getMonth() + 1);
-  const [blockInputs, setBlockInputs] = useState(() =>
-    Object.fromEntries(ANALYSIS_BLOCKS.map(b => [b.key, ""]))
-  );
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState("");
   const [forecastData, setForecastData] = useState(null);
   const [forecastLoading, setForecastLoading] = useState(false);
 
@@ -606,6 +622,23 @@ export default function OverviewPage() {
     return () => clearInterval(intervalRef.current);
   }, []);
 
+  /* Fetch data mode from backend to auto-set overview tab */
+  const fetchDataMode = async () => {
+    try {
+      const res = await fetch(DATA_MODE_URL);
+      if (res.ok) {
+        const d = await res.json();
+        setOverviewTab(d.mode === "iot" ? "iot" : "analysis");
+      }
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { fetchDataMode(); }, []);
+  // Re-check mode periodically
+  useEffect(() => {
+    const id = setInterval(fetchDataMode, 10000);
+    return () => clearInterval(id);
+  }, []);
+
   /* Fetch saved consumption data */
   const fetchConsumption = async () => {
     try {
@@ -624,35 +657,16 @@ export default function OverviewPage() {
     } catch { /* ignore */ }
     setForecastLoading(false);
   };
-  useEffect(() => { if (overviewTab === "analysis") fetchForecast(); }, [overviewTab]);
+  useEffect(() => {
+    if (overviewTab === "analysis" && consumptionRecords.length > 0) {
+      fetchForecast();
+    }
+  }, [overviewTab, consumptionRecords.length]);
 
-  /* Save block consumption */
-  const handleSaveConsumption = async () => {
-    const filled = Object.entries(blockInputs).filter(([, v]) => v !== "" && Number(v) > 0);
-    if (filled.length === 0) { setSaveMsg("Enter at least one block's kWh"); return; }
-    setSaving(true);
-    setSaveMsg("");
-    try {
-      const res = await fetch(CONSUMPTION_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          year: entryYear,
-          month: entryMonth,
-          blocks: Object.fromEntries(filled.map(([k, v]) => [k, Number(v)])),
-          rate: ELECTRICITY_RATE,
-        }),
-      });
-      if (res.ok) {
-        setSaveMsg(`Saved ${filled.length} block(s) for ${FULL_MONTH_NAMES[entryMonth - 1]} ${entryYear}`);
-        setBlockInputs(Object.fromEntries(ANALYSIS_BLOCKS.map(b => [b.key, ""])));
-        fetchConsumption();
-      } else {
-        setSaveMsg("Save failed — check backend");
-      }
-    } catch { setSaveMsg("Network error"); }
-    setSaving(false);
-  };
+  useEffect(() => {
+    const id = setInterval(fetchConsumption, 10000);
+    return () => clearInterval(id);
+  }, []);
 
   /* Derived: monthly chart data */
   const monthlyChartData = useMemo(() => {
@@ -694,6 +708,7 @@ export default function OverviewPage() {
   const totalSolar = data?.blocks?.reduce((s, b) => s + b.solar_kw, 0)?.toFixed(1) || "0";
   const totalHVAC = data?.blocks?.reduce((s, b) => s + b.hvac_kw, 0)?.toFixed(1) || "0";
   const totalLoad = (parseFloat(totalGrid) + parseFloat(totalSolar)).toFixed(1);
+  const hasManualData = consumptionRecords.length > 0;
 
   /* Loading */
   if (!data) {
@@ -726,30 +741,19 @@ export default function OverviewPage() {
           )}
         </div>
 
-        {/* ─── IoT / Analysis Toggle ─── */}
-        <div className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.06] rounded-xl p-0.5">
-          <button
-            onClick={() => setOverviewTab("iot")}
-            className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 ${
-              overviewTab === "iot"
-                ? "bg-sky-500/15 text-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.15)] border border-sky-500/20"
-                : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.03] border border-transparent"
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            IoT Devices
-          </button>
-          <button
-            onClick={() => setOverviewTab("analysis")}
-            className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 ${
-              overviewTab === "analysis"
-                ? "bg-violet-500/15 text-violet-400 shadow-[0_0_8px_rgba(139,92,246,0.15)] border border-violet-500/20"
-                : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.03] border border-transparent"
-            }`}
-          >
-            <BrainCircuit className="w-3.5 h-3.5" />
-            Analysis Models
-          </button>
+        {/* ─── IoT / Analysis Mode Indicator ─── */}
+        <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-lg ${
+            overviewTab === "iot"
+              ? "bg-sky-500/15 text-sky-400 border border-sky-500/20"
+              : "bg-violet-500/15 text-violet-400 border border-violet-500/20"
+          }`}>
+            {overviewTab === "iot"
+              ? <><Cpu className="w-3.5 h-3.5" /> IoT Mode</>
+              : <><BrainCircuit className="w-3.5 h-3.5" /> Analysis Mode</>
+            }
+          </div>
+          <span className="text-[9px] text-slate-600 font-mono">Set via Data Management</span>
         </div>
 
         <button
@@ -766,7 +770,10 @@ export default function OverviewPage() {
       {/* ═══════ ROW 1 — Hero Metrics ═══════ */}
       <section className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="glass-card p-5 flex items-center justify-center animate-scale-in">
-          <NetZeroGauge progress={data.net_zero_progress} />
+          <NetZeroGauge
+            progress={data.net_zero_progress}
+            formula="Net-Zero Progress (%) = min(100, Renewable% × 1.3 + (100 - Grid Intensity) × 0.2), where Grid Intensity = (Total Grid kW / Campus Area) × 500"
+          />
         </div>
 
         <div className="lg:col-span-2 grid grid-cols-2 gap-4">
@@ -780,6 +787,7 @@ export default function OverviewPage() {
             accentBar="accent-bar-emerald"
             trend="+12%"
             trendUp={true}
+            formula="Carbon Saved (kg CO₂) = Solar Energy Generated Today (kWh) × 0.82"
           />
           <StatCard
             icon={TrendingUp}
@@ -791,6 +799,7 @@ export default function OverviewPage() {
             accentBar="accent-bar-amber"
             trend="+8.5%"
             trendUp={true}
+            formula="Financial Savings (₹) = Solar Energy Generated Today (kWh) × Avoided Grid Tariff (₹/kWh)"
           />
           <StatCard
             icon={Zap}
@@ -800,17 +809,20 @@ export default function OverviewPage() {
             accent="text-sky-400"
             accentBg="bg-sky-500/10"
             accentBar="accent-bar-sky"
+            formula="Total Consumption (kWh) = Grid Energy (kWh) + Solar Energy (kWh)"
           />
           <PeakDemandCard
             peak={data.peak_demand_kw}
             target={data.peak_target_kw}
             time={data.peak_demand_time}
+            formula="Peak Demand (kW) = max(Grid Power Draw across today's logs); Utilization (%) = (Peak ÷ Threshold) × 100"
           />
         </div>
 
         <SustainabilityBadge
           score={data.sustainability_score}
           grade={data.sustainability_grade}
+          formula="Sustainability Score = Renewable% × 0.4 + Carbon Component × 0.3 + Avg Efficiency Score × 0.3"
         />
       </section>
 
@@ -1037,89 +1049,11 @@ export default function OverviewPage() {
         {/* ── Section Header ── */}
         <div className="flex items-center gap-2">
           <BrainCircuit className="w-4 h-4 text-violet-400" />
-          <h2 className="text-sm font-bold text-slate-300 tracking-tight">Electricity Consumption — Block-wise Entry</h2>
+          <h2 className="text-sm font-bold text-slate-300 tracking-tight">Electricity Consumption Analysis</h2>
           <div className="flex-1 h-[1px] bg-gradient-to-r from-violet-500/20 to-transparent ml-3" />
-        </div>
-
-        {/* ─── Entry Form ─── */}
-        <div className="glass-card accent-bar-violet p-5">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="p-2 rounded-xl bg-violet-500/10 border border-white/[0.04]">
-              <Plus className="w-4 h-4 text-violet-400" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-200">Add Monthly Consumption</h3>
-              <p className="text-[10px] text-slate-500">Enter kWh consumed by each block for a given month</p>
-            </div>
-          </div>
-
-          {/* Year & Month selector */}
-          <div className="flex items-center gap-4 mb-5">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-slate-500" />
-              <select
-                value={entryMonth}
-                onChange={e => setEntryMonth(Number(e.target.value))}
-                className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:border-violet-500/30 focus:outline-none transition-colors"
-              >
-                {FULL_MONTH_NAMES.map((m, i) => (
-                  <option key={i} value={i + 1} className="bg-[#0c1220] text-slate-300">{m}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={entryYear}
-                onChange={e => setEntryYear(Number(e.target.value))}
-                min={2020} max={2040}
-                className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 w-20 focus:border-violet-500/30 focus:outline-none transition-colors"
-              />
-            </div>
-            <span className="text-[10px] text-slate-600 font-mono">Rate: ₹{ELECTRICITY_RATE}/kWh</span>
-          </div>
-
-          {/* Block inputs grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
-            {ANALYSIS_BLOCKS.map(blk => (
-              <div key={blk.key} className="relative">
-                <label className="text-[10px] text-slate-500 font-medium mb-1 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full" style={{ background: blk.color }} />
-                  {blk.short} Block
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    placeholder="kWh"
-                    value={blockInputs[blk.key]}
-                    onChange={e => setBlockInputs(prev => ({ ...prev, [blk.key]: e.target.value }))}
-                    min={0}
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:border-violet-500/30 focus:outline-none transition-colors font-mono"
-                  />
-                  {blockInputs[blk.key] && Number(blockInputs[blk.key]) > 0 && (
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-600 font-mono">
-                      ₹{(Number(blockInputs[blk.key]) * ELECTRICITY_RATE).toLocaleString("en-IN")}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Save button */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSaveConsumption}
-              disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-500/15 border border-violet-500/25 text-violet-400 text-xs font-semibold hover:bg-violet-500/25 transition-all duration-300 disabled:opacity-50"
-            >
-              <Save className="w-3.5 h-3.5" />
-              {saving ? "Saving..." : "Save Data"}
-            </button>
-            {saveMsg && (
-              <span className={`text-[11px] font-mono ${saveMsg.includes("Saved") ? "text-emerald-400" : "text-amber-400"}`}>
-                {saveMsg}
-              </span>
-            )}
-          </div>
+          <span className="text-[9px] text-slate-600 font-mono px-2 py-0.5 rounded bg-white/[0.03] border border-white/[0.04]">
+            Data entered via Data Management
+          </span>
         </div>
 
         {/* ─── Monthly Comparison Chart ─── */}
@@ -1248,25 +1182,27 @@ export default function OverviewPage() {
         {consumptionRecords.length === 0 && (
           <div className="glass-card p-8 flex flex-col items-center justify-center text-center">
             <Info className="w-6 h-6 text-slate-600 mb-2" />
-            <p className="text-sm text-slate-500">No consumption data yet — add your first entry above</p>
+            <p className="text-sm text-slate-500">No consumption data yet — add records in Data Management</p>
           </div>
         )}
 
         {/* ═══════ ENERGY DEMAND FORECAST ═══════ */}
-        <div className="flex items-center gap-2 mt-4">
-          <TrendingUp className="w-4 h-4 text-cyan-400" />
-          <h2 className="text-sm font-bold text-slate-300 tracking-tight">Energy Demand Forecast (2026–2032)</h2>
-          <div className="flex-1 h-[1px] bg-gradient-to-r from-cyan-500/20 to-transparent ml-3" />
-        </div>
+        {hasManualData && (
+          <div className="flex items-center gap-2 mt-4">
+            <TrendingUp className="w-4 h-4 text-cyan-400" />
+            <h2 className="text-sm font-bold text-slate-300 tracking-tight">Energy Demand Forecast (2026–2032)</h2>
+            <div className="flex-1 h-[1px] bg-gradient-to-r from-cyan-500/20 to-transparent ml-3" />
+          </div>
+        )}
 
-        {forecastLoading && (
+        {hasManualData && forecastLoading && (
           <div className="glass-card p-8 flex items-center justify-center">
             <RefreshCw className="w-5 h-5 text-cyan-400/40 animate-spin mr-2" />
             <span className="text-sm text-slate-500">Loading forecast model…</span>
           </div>
         )}
 
-        {forecastData && !forecastData.error && (
+        {hasManualData && forecastData && !forecastData.error && (
           <>
             {/* Model Info Card */}
             <div className="glass-card accent-bar-cyan p-5">
@@ -1496,11 +1432,19 @@ export default function OverviewPage() {
           </>
         )}
 
-        {forecastData?.error && (
+        {hasManualData && forecastData?.error && (
           <div className="glass-card p-8 flex flex-col items-center justify-center text-center">
             <AlertTriangle className="w-6 h-6 text-amber-500 mb-2" />
             <p className="text-sm text-amber-400">Forecast error: {forecastData.error}</p>
             <p className="text-[10px] text-slate-600 mt-1">Ensure backend is running with numpy & scikit-learn installed</p>
+          </div>
+        )}
+
+        {!hasManualData && (
+          <div className="glass-card p-8 flex flex-col items-center justify-center text-center border border-dashed border-white/[0.08]">
+            <BrainCircuit className="w-6 h-6 text-violet-400/70 mb-2" />
+            <p className="text-sm text-slate-400">Forecast is locked until manual billing data is entered.</p>
+            <p className="text-[10px] text-slate-600 mt-1">Go to Data Management → Manual Entry, save at least one month for any block.</p>
           </div>
         )}
 

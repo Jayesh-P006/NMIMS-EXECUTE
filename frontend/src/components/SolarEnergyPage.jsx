@@ -57,7 +57,8 @@ import {
 } from "lucide-react";
 
 /* ── Constants ─────────────────────────────────────────────── */
-const API_URL = "http://localhost:5000/api/solar-live";
+const BASE = process.env.REACT_APP_API_URL || "";
+const API_URL = `${BASE}/api/solar-live`;
 const POLL_INTERVAL = 10000;
 const MAX_HISTORY = 30;
 const CLEAR_SKY_GHI = 1000; // W/m²
@@ -974,7 +975,7 @@ export default function SolarEnergyPage() {
             <Tooltip content={<ChartTooltip />} />
             <Bar dataKey="kwh" name="Energy (kWh)" fill="url(#monthBarGrad)" radius={[4, 4, 0, 0]} barSize={28}>
               {monthlyTableData.map((entry, index) => (
-                <Cell key={index} fill={index === currentMonthIdx ? "#f59e0b" : undefined} />
+                <Cell key={index} fill={index === currentMonthIdx ? "#f59e0b" : index > currentMonthIdx ? "#38bdf855" : undefined} />
               ))}
             </Bar>
           </BarChart>
@@ -1004,6 +1005,9 @@ export default function SolarEnergyPage() {
                     {m.month}
                     {m.idx === currentMonthIdx && (
                       <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">NOW</span>
+                    )}
+                    {m.idx > currentMonthIdx && (
+                      <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-sky-500/20 text-sky-400">PREDICTED</span>
                     )}
                   </td>
                   <td className="py-2 px-3 text-right text-slate-400 font-mono">{m.days}</td>

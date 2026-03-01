@@ -72,7 +72,13 @@ def fetch_full_weather(lat: float, lon: float) -> dict:
     data = resp.json()
 
     cw = data["current_weather"]
-    hour_now = datetime.now(timezone.utc).hour
+    # Hourly arrays are in the API's local timezone (timezone: "auto"),
+    # so derive the local hour from the API's own timestamp.
+    try:
+        api_time = cw.get("time", "")          # e.g. "2026-03-01T12:00"
+        hour_now = int(api_time.split("T")[1].split(":")[0])
+    except (IndexError, ValueError):
+        hour_now = datetime.now(timezone.utc).hour   # fallback
     hourly = data.get("hourly", {})
     daily = data.get("daily", {})
 

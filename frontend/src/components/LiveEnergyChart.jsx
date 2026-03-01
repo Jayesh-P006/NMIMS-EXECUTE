@@ -11,7 +11,12 @@ import {
 } from "recharts";
 import { Activity, Wifi, WifiOff } from "lucide-react";
 
-const API_URL = "http://localhost:5000/api/live-status";
+const BASE = process.env.REACT_APP_API_URL || "";
+const LIVE_URL = `${BASE}/api/live-status`;
+const MODE_URL = `${BASE}/api/data-mode`;
+const IOT_CONN_URL = `${BASE}/api/iot-connection`;
+const IOT_LOGS_URL = `${BASE}/api/iot-logs?limit=60`;
+const CONSUMPTION_URL = `${BASE}/api/block-consumption`;
 const POLL_INTERVAL_MS = 5000;
 const MAX_DATA_POINTS = 60;
 
@@ -68,11 +73,102 @@ export default function LiveEnergyChart() {
   const [chartData, setChartData] = useState([]);
   const [connected, setConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [dataMode, setDataMode] = useState("iot");
   const intervalRef = useRef(null);
 
   const fetchLiveData = async () => {
     try {
-      const res = await fetch(API_URL);
+      const modeRes = await fetch(MODE_URL);
+      const modeJson = modeRes.ok ? await modeRes.json() : { mode: "iot" };
+      const mode = modeJson.mode === "manual" ? "manual" : "iot";
+      setDataMode(mode);
+
+      if (mode === "manual") {
+        const res = await fetch(CONSUMPTION_URL);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const records = await res.json();
+
+        const byMonth = {};
+        records.forEach((r) => {
+          const key = `${r.year}-${String(r.month).padStart(2, "0")}`;
+          if (!byMonth[key]) {
+            byMonth[key] = {
+              key,
+              year: r.year,
+              month: r.month,
+              consumption: 0,
+              billedCost: 0,
+            };
+          }
+          byMonth[key].consumption += Number(r.kwh || 0);
+          byMonth[key].billedCost += Number(r.cost || 0);
+        });
+
+        const monthly = Object.values(byMonth)
+          .sort((a, b) => a.year - b.year || a.month - b.month)
+          .slice(-12)
+          .map((m) => ({
+            time: new Date(m.year, m.month - 1, 1).toLocaleString("en-IN", {
+              month: "short",
+              year: "2-digit",
+            }),
+            consumption: parseFloat(m.consumption.toFixed(2)),
+            billedCost: parseFloat(m.billedCost.toFixed(2)),
+          }));
+
+        setChartData(monthly);
+        setConnected(true);
+        setLastUpdate(new Date());
+        return;
+      }
+
+      // IoT mode: prefer IoT device logs if connected, fallback to live simulator status
+      let iotConnected = false;
+      try {
+        const connRes = await fetch(IOT_CONN_URL);
+        if (connRes.ok) {
+          const conn = await connRes.json();
+          iotConnected = !!conn.connected;
+        }
+      } catch {
+        iotConnected = false;
+      }
+
+      if (iotConnected) {
+        const logsRes = await fetch(IOT_LOGS_URL);
+        if (logsRes.ok) {
+          const logsJson = await logsRes.json();
+          const logs = (logsJson.logs || []).slice().reverse();
+          const transformed = logs.map((log) => {
+            let totalGrid = 0;
+            let totalSolar = 0;
+            let totalHVAC = 0;
+            Object.values(log.readings || {}).forEach((r) => {
+              totalGrid += Number(r.grid_kw || 0);
+              totalSolar += Number(r.solar_kw || 0);
+              totalHVAC += Number(r.hvac_kw || 0);
+            });
+            const dt = new Date(log.timestamp);
+            return {
+              time: dt.toLocaleTimeString("en-IN", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false,
+              }),
+              gridPower: parseFloat(totalGrid.toFixed(2)),
+              solarPower: parseFloat(totalSolar.toFixed(2)),
+              hvacPower: parseFloat(totalHVAC.toFixed(2)),
+            };
+          });
+          setChartData(transformed.slice(-MAX_DATA_POINTS));
+          setConnected(true);
+          setLastUpdate(new Date());
+          return;
+        }
+      }
+
+      const res = await fetch(LIVE_URL);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
 
@@ -132,10 +228,12 @@ export default function LiveEnergyChart() {
           </div>
           <div>
             <h2 className="text-sm font-bold text-slate-200 tracking-tight">
-              Energy Consumption &mdash; Live Feed
+              Energy Consumption &mdash; {dataMode === "manual" ? "Manual Records" : "Live Feed"}
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Grid Power vs Solar Generation (all blocks aggregated)
+              {dataMode === "manual"
+                ? "Monthly electricity bill entries from Data Management"
+                : "Grid Power vs Solar Generation (all blocks aggregated)"}
             </p>
           </div>
         </div>
@@ -167,7 +265,9 @@ export default function LiveEnergyChart() {
       {chartData.length === 0 ? (
         <div className="h-72 flex items-center justify-center rounded-xl border border-dashed border-white/[0.06]">
           <p className="text-slate-600 text-sm">
-            Waiting for data from API&hellip;
+            {dataMode === "manual"
+              ? "No manual entries yet. Add data in Data Management."
+              : "Waiting for data from API&hellip;"}
           </p>
         </div>
       ) : (
@@ -212,48 +312,65 @@ export default function LiveEnergyChart() {
               axisLine={false}
               tickFormatter={(v) => `${v}`}
               domain={["auto", "auto"]}
-              unit=" kW"
+              unit={dataMode === "manual" ? " kWh" : " kW"}
             />
             <Tooltip content={<ChartTooltip />} />
             <Legend content={<ChartLegend />} />
 
-            <Area
-              type="monotone"
-              dataKey="gridPower"
-              name="Grid Power"
-              stroke="#f97316"
-              fill="url(#liveGridGrad)"
-              strokeWidth={2.5}
-              dot={false}
-              activeDot={{ r: 5, fill: "#f97316", stroke: "#060a14", strokeWidth: 2 }}
-              animationDuration={800}
-              isAnimationActive
-            />
-            <Area
-              type="monotone"
-              dataKey="solarPower"
-              name="Solar Power"
-              stroke="#06b6d4"
-              fill="url(#liveSolarGrad)"
-              strokeWidth={2.5}
-              dot={false}
-              activeDot={{ r: 5, fill: "#06b6d4", stroke: "#060a14", strokeWidth: 2 }}
-              animationDuration={800}
-              isAnimationActive
-            />
-            <Area
-              type="monotone"
-              dataKey="hvacPower"
-              name="HVAC Power"
-              stroke="#8b5cf6"
-              fill="url(#liveHvacGrad)"
-              strokeWidth={1.5}
-              strokeDasharray="5 3"
-              dot={false}
-              activeDot={{ r: 4, fill: "#8b5cf6", stroke: "#060a14", strokeWidth: 2 }}
-              animationDuration={800}
-              isAnimationActive
-            />
+            {dataMode === "manual" ? (
+              <Area
+                type="monotone"
+                dataKey="consumption"
+                name="Monthly Consumption"
+                stroke="#f97316"
+                fill="url(#liveGridGrad)"
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: "#f97316" }}
+                activeDot={{ r: 5, fill: "#f97316", stroke: "#060a14", strokeWidth: 2 }}
+                animationDuration={800}
+                isAnimationActive
+              />
+            ) : (
+              <>
+                <Area
+                  type="monotone"
+                  dataKey="gridPower"
+                  name="Grid Power"
+                  stroke="#f97316"
+                  fill="url(#liveGridGrad)"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 5, fill: "#f97316", stroke: "#060a14", strokeWidth: 2 }}
+                  animationDuration={800}
+                  isAnimationActive
+                />
+                <Area
+                  type="monotone"
+                  dataKey="solarPower"
+                  name="Solar Power"
+                  stroke="#06b6d4"
+                  fill="url(#liveSolarGrad)"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 5, fill: "#06b6d4", stroke: "#060a14", strokeWidth: 2 }}
+                  animationDuration={800}
+                  isAnimationActive
+                />
+                <Area
+                  type="monotone"
+                  dataKey="hvacPower"
+                  name="HVAC Power"
+                  stroke="#8b5cf6"
+                  fill="url(#liveHvacGrad)"
+                  strokeWidth={1.5}
+                  strokeDasharray="5 3"
+                  dot={false}
+                  activeDot={{ r: 4, fill: "#8b5cf6", stroke: "#060a14", strokeWidth: 2 }}
+                  animationDuration={800}
+                  isAnimationActive
+                />
+              </>
+            )}
           </AreaChart>
         </ResponsiveContainer>
       )}
@@ -261,30 +378,56 @@ export default function LiveEnergyChart() {
       {/* Footer stats */}
       {chartData.length > 0 && (
         <div className="flex items-center gap-6 mt-4 pt-3 border-t border-white/[0.04]">
-          {[
-            { label: "Grid", key: "gridPower", color: "text-orange-400", border: "border-l-orange-400" },
-            { label: "Solar", key: "solarPower", color: "text-cyan-400", border: "border-l-cyan-400" },
-            { label: "HVAC", key: "hvacPower", color: "text-violet-400", border: "border-l-violet-400" },
-          ].map(({ label, key, color, border }) => {
-            const latest = chartData[chartData.length - 1][key];
-            return (
-              <div key={key} className={`text-center pl-3 border-l-2 ${border}`}>
-                <p className={`text-lg font-extrabold ${color}`}>
-                  {latest.toFixed(1)}
-                  <span className="text-[10px] text-slate-500 ml-1">kW</span>
+          {dataMode === "manual" ? (
+            <>
+              <div className="text-center pl-3 border-l-2 border-l-orange-400">
+                <p className="text-lg font-extrabold text-orange-400">
+                  {chartData[chartData.length - 1].consumption.toFixed(1)}
+                  <span className="text-[10px] text-slate-500 ml-1">kWh</span>
                 </p>
                 <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                  {label} Now
+                  Latest Month
                 </p>
               </div>
-            );
-          })}
+              <div className="text-center pl-3 border-l-2 border-l-amber-400">
+                <p className="text-lg font-extrabold text-amber-400">
+                  {chartData.length}
+                </p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+                  Months of Data
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              {[
+                { label: "Grid", key: "gridPower", color: "text-orange-400", border: "border-l-orange-400" },
+                { label: "Solar", key: "solarPower", color: "text-cyan-400", border: "border-l-cyan-400" },
+                { label: "HVAC", key: "hvacPower", color: "text-violet-400", border: "border-l-violet-400" },
+              ].map(({ label, key, color, border }) => {
+                const latest = chartData[chartData.length - 1][key];
+                return (
+                  <div key={key} className={`text-center pl-3 border-l-2 ${border}`}>
+                    <p className={`text-lg font-extrabold ${color}`}>
+                      {latest.toFixed(1)}
+                      <span className="text-[10px] text-slate-500 ml-1">kW</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+                      {label} Now
+                    </p>
+                  </div>
+                );
+              })}
+            </>
+          )}
           <div className="ml-auto text-right">
             <p className="text-xs text-slate-500 font-mono">
               {chartData.length} data points
             </p>
             <p className="text-[10px] text-slate-600">
-              Polling every {POLL_INTERVAL_MS / 1000}s
+              {dataMode === "manual"
+                ? "Synced from Data Management"
+                : `Polling every ${POLL_INTERVAL_MS / 1000}s`}
             </p>
           </div>
         </div>
