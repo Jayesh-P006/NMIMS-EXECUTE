@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "./components/DashboardLayout";
 import OverviewPage from "./components/OverviewPage";
 import LiveEnergyChart from "./components/LiveEnergyChart";
@@ -6,15 +7,22 @@ import ROICalculator from "./components/ROICalculator";
 import SolarEnergyPage from "./components/SolarEnergyPage";
 import DataEntries from "./components/DataEntries";
 import SustainabilityKPIPage from "./components/SustainabilityKPIPage";
+import LandingPage from "./components/LandingPage";
+import LoginPage from "./components/LoginPage";
+import RegisterPage from "./components/RegisterPage";
+import StudentDashboard from "./components/StudentDashboard";
 
 /**
- * App — root component
+ * App — root component with React Router
  * ──────────────────────────────────────────────────────────────
- * Wires the DashboardLayout with nav-based page switching:
- *   • Overview      → OverviewPage (comprehensive analytics)
- *   • Analytics     → LiveEnergyChart + block breakdown
- *   • ROI Calculator→ ROICalculator
- *   (Roadmap removed)
+ * Routes:
+ *   /                   → Landing page
+ *   /login              → Login page
+ *   /register           → Register page
+ *   /admin/:page?       → Admin Dashboard (overview, analytics, data, sustainability, solar, roi)
+ *   /student/:page?     → Student Dashboard (dashboard, leaderboard, challenges, etc.)
+ *
+ * Auth persists in localStorage so refresh keeps you logged in.
  */
 
 const BASE = process.env.REACT_APP_API_URL || "";
@@ -31,13 +39,34 @@ const BLOCKS = [
   { name: "SPTM Block", color: "border-l-rose-400/50" },
 ];
 
-export default function App() {
+/* ── Helpers ──────────────────────────────────────────────── */
+function getAuth() {
+  try {
+    const raw = localStorage.getItem("campusAuth");
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+/* ── Admin dashboard content (uses URL param) ────────────── */
+function AdminContent() {
+  const { page } = useParams();
+  const activeNav = page || "overview";
+  const navigate = useNavigate();
+
   const [alert, setAlert] = useState(null);
-  const [activeNav, setActiveNav] = useState("overview");
   const [dataMode, setDataMode] = useState("manual");
   const [blockBreakdown, setBlockBreakdown] = useState({});
 
-  /* ── Fetch surge prediction on mount ────────────────────── */
+  const handleNavChange = (key) => {
+    navigate(`/admin/${key}`, { replace: true });
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("campusAuth");
+    navigate("/");
+  };
+
+  /* ── Fetch surge prediction ─────────────────────────────── */
   const fetchSurge = useCallback(async () => {
     try {
       const res = await fetch(PREDICT_URL);
@@ -46,9 +75,7 @@ export default function App() {
       if (data.anomaly_alert && data.alert) {
         setAlert(data.alert.message);
       }
-    } catch {
-      // API not reachable — keep silent
-    }
+    } catch { /* silent */ }
   }, []);
 
   useEffect(() => {
@@ -101,9 +128,7 @@ export default function App() {
           next[r.block] = Number((r.kwh || 0).toFixed(1));
         });
       setBlockBreakdown(next);
-    } catch {
-      // keep previous values if request fails
-    }
+    } catch { /* keep previous */ }
   }, []);
 
   useEffect(() => {
@@ -181,9 +206,96 @@ export default function App() {
       alertMessage={alert}
       onDismissAlert={() => setAlert(null)}
       activeNav={activeNav}
-      onNavChange={setActiveNav}
+      onNavChange={handleNavChange}
+      onLogout={handleLogout}
     >
       {renderPage()}
     </DashboardLayout>
+  );
+}
+
+/* ── Protected route wrapper ─────────────────────────────── */
+function RequireAuth({ role, children }) {
+  const auth = getAuth();
+  if (!auth?.loggedIn) return <Navigate to="/login" replace />;
+  if (role && auth.role !== role) return <Navigate to="/login" replace />;
+  return children;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+export default function App() {
+  const navigate = useNavigate();
+
+  const handleLogin = (role) => {
+    const authData = { role, loggedIn: true };
+    localStorage.setItem("campusAuth", JSON.stringify(authData));
+    window.scrollTo(0, 0);
+    navigate(role === "admin" ? "/admin/overview" : "/student/dashboard");
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("campusAuth");
+    navigate("/");
+  };
+
+  return (
+    <Routes>
+      {/* Landing */}
+      <Route path="/" element={<LandingPage onEnterDashboard={() => navigate("/login")} />} />
+
+      {/* Auth */}
+      <Route
+        path="/login"
+        element={
+          getAuth()?.loggedIn
+            ? <Navigate to={getAuth()?.role === "admin" ? "/admin/overview" : "/student/dashboard"} replace />
+            : <LoginPage
+                onLogin={handleLogin}
+                onGoToRegister={() => navigate("/register")}
+                onBackToLanding={() => navigate("/")}
+              />
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <RegisterPage
+            onGoToLogin={() => navigate("/login")}
+            onBackToLanding={() => navigate("/")}
+          />
+        }
+      />
+
+      {/* Admin dashboard — /admin or /admin/:page */}
+      <Route
+        path="/admin"
+        element={<Navigate to="/admin/overview" replace />}
+      />
+      <Route
+        path="/admin/:page"
+        element={
+          <RequireAuth role="admin">
+            <AdminContent />
+          </RequireAuth>
+        }
+      />
+
+      {/* Student dashboard — /student or /student/:page */}
+      <Route
+        path="/student"
+        element={<Navigate to="/student/dashboard" replace />}
+      />
+      <Route
+        path="/student/:page"
+        element={
+          <RequireAuth role="student">
+            <StudentDashboard onLogout={handleLogout} />
+          </RequireAuth>
+        }
+      />
+
+      {/* Catch-all */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

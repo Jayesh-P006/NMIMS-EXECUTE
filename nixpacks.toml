@@ -1,14 +1,13 @@
+# Railway / Nixpacks configuration — Python-only
+# frontend/build/ is pre-built and committed to git, so no Node.js needed.
+
+providers = ["python"]
+
 [phases.setup]
-nixPkgs = ["...", "nodejs-18_x", "npm-9_x"]
+nixPkgs = ["python311"]
 
 [phases.install]
-cmds = [
-    "cd frontend && npm ci && cd ..",
-    "pip install -r requirements.txt",
-]
-
-[phases.build]
-cmds = ["cd frontend && npm run build"]
+cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120"
