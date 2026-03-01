@@ -10,6 +10,7 @@ import {
   Sun,
   Database,
   Gauge,
+  LogOut,
 } from "lucide-react";
 import AlertBanner from "./AlertBanner";
 import TopMetricsBar from "./TopMetricsBar";
@@ -30,6 +31,7 @@ export default function DashboardLayout({
   children,
   activeNav: controlledNav,
   onNavChange,
+  onLogout,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [internalNav, setInternalNav] = useState("overview");
@@ -70,7 +72,7 @@ export default function DashboardLayout({
                 NMIMS Indore
               </p>
               <p className="text-[10px] text-sky-400/75 uppercase tracking-[0.18em] font-semibold mt-1">
-                Net-Zero Command
+                Admin Dashboard
               </p>
             </div>
           )}
@@ -120,6 +122,21 @@ export default function DashboardLayout({
               <Sparkles className="w-3 h-3" />
               <span>v1.0 — Smart Campus</span>
             </div>
+          </div>
+        )}
+
+        {/* Logout */}
+        {onLogout && (
+          <div className="border-t border-white/[0.06] p-3">
+            <button
+              onClick={onLogout}
+              title={collapsed ? "Logout" : undefined}
+              className="flex items-center gap-3 w-full rounded-2xl px-4 py-3 text-[15px] font-medium text-red-400/70 hover:text-red-400 hover:bg-red-500/[0.06] transition-all duration-200"
+              style={collapsed ? { justifyContent: "center", padding: "0.75rem 0.5rem" } : {}}
+            >
+              <LogOut className="w-[19px] h-[19px] flex-shrink-0" />
+              {!collapsed && <span className="tracking-[0.01em] leading-none">Logout</span>}
+            </button>
           </div>
         )}
 

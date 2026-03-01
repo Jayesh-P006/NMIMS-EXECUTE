@@ -324,8 +324,8 @@ def _get_today_logs(now):
 # REST API
 # ---------------------------------------------------------------------------
 
-@app.route("/")
-def index():
+@app.route("/api/info")
+def api_info():
     return jsonify({
         "service": "NMIMS Indore — Net-Zero Command Center",
         "storage": "MongoDB" if USE_MONGO else "In-Memory",

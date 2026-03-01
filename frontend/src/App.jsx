@@ -6,15 +6,16 @@ import ROICalculator from "./components/ROICalculator";
 import SolarEnergyPage from "./components/SolarEnergyPage";
 import DataEntries from "./components/DataEntries";
 import SustainabilityKPIPage from "./components/SustainabilityKPIPage";
+import LandingPage from "./components/LandingPage";
+import LoginPage from "./components/LoginPage";
+import RegisterPage from "./components/RegisterPage";
+import StudentDashboard from "./components/StudentDashboard";
 
 /**
  * App — root component
  * ──────────────────────────────────────────────────────────────
- * Wires the DashboardLayout with nav-based page switching:
- *   • Overview      → OverviewPage (comprehensive analytics)
- *   • Analytics     → LiveEnergyChart + block breakdown
- *   • ROI Calculator→ ROICalculator
- *   (Roadmap removed)
+ * View flow:
+ *   Landing → Login / Register → Admin Dashboard | Student Dashboard
  */
 
 const BASE = process.env.REACT_APP_API_URL || "";
@@ -32,8 +33,14 @@ const BLOCKS = [
 ];
 
 export default function App() {
+  // "landing" | "login" | "register" | "admin" | "student"
+  const [view, setView] = useState("landing");
   const [alert, setAlert] = useState(null);
   const [activeNav, setActiveNav] = useState("overview");
+
+  const goTo = (v) => { setView(v); window.scrollTo(0, 0); };
+  const handleLogin = (role) => goTo(role === "admin" ? "admin" : "student");
+  const handleLogout = () => goTo("landing");
   const [dataMode, setDataMode] = useState("manual");
   const [blockBreakdown, setBlockBreakdown] = useState({});
 
@@ -176,12 +183,42 @@ export default function App() {
     }
   };
 
+  /* ── View routing ────────────────────────────────────────── */
+  if (view === "landing") {
+    return <LandingPage onEnterDashboard={() => goTo("login")} />;
+  }
+
+  if (view === "login") {
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        onGoToRegister={() => goTo("register")}
+        onBackToLanding={() => goTo("landing")}
+      />
+    );
+  }
+
+  if (view === "register") {
+    return (
+      <RegisterPage
+        onGoToLogin={() => goTo("login")}
+        onBackToLanding={() => goTo("landing")}
+      />
+    );
+  }
+
+  if (view === "student") {
+    return <StudentDashboard onLogout={handleLogout} />;
+  }
+
+  /* Admin dashboard (default for view === "admin") */
   return (
     <DashboardLayout
       alertMessage={alert}
       onDismissAlert={() => setAlert(null)}
       activeNav={activeNav}
       onNavChange={setActiveNav}
+      onLogout={handleLogout}
     >
       {renderPage()}
     </DashboardLayout>
